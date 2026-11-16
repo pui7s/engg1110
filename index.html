@@ -1,0 +1,675 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>Ink Chomp</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bungee&family=Nunito:wght@600;800&display=swap">
+<style>
+/* Layout: one-screen arcade cabinet. Scoreboard strip on top, maze fills the rest, cards float over the maze. */
+:root {
+  color-scheme: dark;
+  --night: #120d2e;      /* page and maze walls */
+  --floor: #261d57;      /* unpainted corridor */
+  --panel: #1c1544;
+  --line: #3b2f7a;
+  --chalk: #f3efff;      /* text */
+  --dim: #a79fd6;
+  --you: #ff8a1f;        /* your ink */
+  --you-lite: #ffd7a6;
+  --them: #18cfc0;       /* rival ink */
+  --them-lite: #c4fff8;
+  --display: "Bungee", "Arial Black", Impact, sans-serif;
+  --body: "Nunito", "Trebuchet MS", system-ui, sans-serif;
+}
+html, body { height: 100%; }
+[hidden] { display: none !important; }
+body {
+  background: var(--night);
+  color: var(--chalk);
+  font-family: var(--body);
+  font-weight: 600;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-sizing: border-box;
+  padding-block: 12px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  overflow: hidden;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.hud {
+  width: 100%;
+  max-width: 560px;
+  margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.name {
+  font-family: var(--display);
+  font-size: 20px;
+  letter-spacing: 0.02em;
+  line-height: 1;
+}
+.name b { color: var(--you); font-weight: 400; }
+.name i { color: var(--them); font-style: normal; }
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+#clock {
+  font-family: var(--display);
+  font-size: 20px;
+  color: var(--chalk);
+  font-variant-numeric: tabular-nums;
+  min-width: 2.2ch;
+  text-align: right;
+  letter-spacing: 0;
+}
+#clock.low { color: var(--you); }
+#mute {
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dim);
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+#mute:focus-visible, .go:focus-visible { outline: 3px solid var(--chalk); outline-offset: 2px; }
+.turf {
+  display: flex;
+  height: 18px;
+  background: var(--floor);
+  border-radius: 4px;
+  overflow: hidden;
+  justify-content: space-between;
+}
+.turf span { display: block; height: 100%; transition: width 0.2s linear; }
+#barYou { background: var(--you); width: 0; }
+#barThem { background: var(--them); width: 0; }
+.scores {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+}
+#pctYou { color: var(--you); }
+#pctThem { color: var(--them); }
+#buff { color: var(--chalk); letter-spacing: 0.08em; text-transform: uppercase; font-size: 12px; }
+
+.stage {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+canvas { display: block; border-radius: 10px; }
+.card {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: min(100%, 340px);
+  height: max-content;
+  max-height: 100%;
+  box-sizing: border-box;
+  background: var(--panel);
+  border: 2px solid var(--line);
+  border-radius: 14px;
+  padding: 22px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  text-align: center;
+  box-shadow: 0 18px 50px rgba(5, 2, 20, 0.7);
+}
+.card h1 {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 30px;
+  line-height: 1.05;
+  text-wrap: balance;
+}
+.card p { margin: 0; font-size: 15px; line-height: 1.45; color: var(--dim); }
+.card p strong { color: var(--chalk); font-weight: 800; }
+.card .you { color: var(--you); }
+.card .them { color: var(--them); }
+.go {
+  font-family: var(--display);
+  font-size: 18px;
+  color: var(--night);
+  background: var(--you);
+  border: 0;
+  border-radius: 10px;
+  padding: 13px 18px;
+  cursor: pointer;
+  box-shadow: 0 5px 0 #b85a00;
+}
+.go:active { transform: translateY(3px); box-shadow: 0 2px 0 #b85a00; }
+.small { font-size: 12px !important; letter-spacing: 0.06em; text-transform: uppercase; }
+</style>
+
+<div class="hud">
+  <div class="row">
+    <div class="name"><b>Ink</b> <i>Chomp</i></div>
+    <div class="meta">
+      <button id="mute" type="button">Sound on</button>
+      <span id="lvl">Level 1</span>
+      <span id="clock">60</span>
+    </div>
+  </div>
+  <div class="turf" aria-hidden="true"><span id="barYou"></span><span id="barThem"></span></div>
+  <div class="row scores">
+    <span id="pctYou">You 0%</span>
+    <span id="buff"></span>
+    <span id="pctThem">Rivals 0%</span>
+  </div>
+</div>
+
+<div class="stage" id="stage">
+  <canvas id="c" aria-label="Maze"></canvas>
+  <div class="card" id="card">
+    <h1 id="cardTitle">Paint the maze. Eat the rivals.</h1>
+    <p id="cardText">Everywhere Glob rolls turns <strong class="you">orange</strong>. The Squirts paint it back <strong class="them">teal</strong>. Own the most turf when the 60 seconds run out.</p>
+    <p id="cardTip">Grab a glowing <strong>ink tank</strong> to paint wide and chomp Squirts. Without it, they splat you.</p>
+    <button class="go" id="go" type="button">Play</button>
+    <p class="small" id="cardFoot">Arrow keys or WASD · swipe on a phone</p>
+  </div>
+</div>
+
+<script>
+(() => {
+const W = 19, H = 21, ROUND = 60;
+const DIRS = [[1,0],[-1,0],[0,1],[0,-1]];
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const COL = { night: css('--night'), floor: css('--floor'), you: css('--you'), youL: css('--you-lite'),
+              them: css('--them'), themL: css('--them-lite'), chalk: css('--chalk') };
+const $ = id => document.getElementById(id);
+const cv = $('c'), ctx = cv.getContext('2d'), stage = $('stage');
+
+let T = 20, grid, paint, paintT, openCount, counts;
+let player, rivals, tanks, parts, floats;
+let level = 1, best = 1, timeLeft = ROUND, frenzy = 0, tankTimer = 0, state = 'menu', clockNow = 0;
+let muted = false, ac = null;
+
+try { best = +localStorage.getItem('inkchomp.best') || 1; } catch (e) {}
+
+const rnd = n => Math.floor(Math.random() * n);
+const shuffle = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = rnd(i + 1); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const open = (x, y) => x >= 0 && y >= 0 && x < W && y < H && grid[y][x] === 0;
+
+function beep(f, d, type, v) {
+  if (muted || !ac) return;
+  const o = ac.createOscillator(), g = ac.createGain(), t = ac.currentTime;
+  o.type = type || 'square'; o.frequency.setValueAtTime(f, t);
+  o.frequency.exponentialRampToValueAtTime(Math.max(40, f * 0.5), t + d);
+  g.gain.setValueAtTime(v || 0.05, t); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+  o.connect(g).connect(ac.destination); o.start(t); o.stop(t + d);
+}
+
+/* Maze: carve the left half with a depth-first walk, knock out dead ends so it loops, then mirror. */
+function genMaze() {
+  grid = Array.from({ length: H }, () => Array(W).fill(1));
+  const CX = 5, CY = 10, seen = new Set(['4,9']), stack = [[4, 9]];
+  grid[19][9] = 0;
+  while (stack.length) {
+    const [cx, cy] = stack[stack.length - 1];
+    const opts = shuffle(DIRS).filter(([dx, dy]) => {
+      const nx = cx + dx, ny = cy + dy;
+      return nx >= 0 && ny >= 0 && nx < CX && ny < CY && !seen.has(nx + ',' + ny);
+    });
+    if (!opts.length) { stack.pop(); continue; }
+    const [dx, dy] = opts[0], nx = cx + dx, ny = cy + dy;
+    grid[1 + 2 * cy + dy][1 + 2 * cx + dx] = 0;
+    grid[1 + 2 * ny][1 + 2 * nx] = 0;
+    seen.add(nx + ',' + ny); stack.push([nx, ny]);
+  }
+  const knock = (cx, cy) => {
+    const x = 1 + 2 * cx, y = 1 + 2 * cy;
+    const c = shuffle(DIRS).filter(([dx, dy]) => {
+      const nx = cx + dx, ny = cy + dy;
+      return nx >= 0 && ny >= 0 && nx < CX && ny < CY && grid[y + dy][x + dx] === 1;
+    });
+    if (c.length) grid[y + c[0][1]][x + c[0][0]] = 0;
+  };
+  for (let cy = 0; cy < CY; cy++) for (let cx = 0; cx < CX; cx++) {
+    const x = 1 + 2 * cx, y = 1 + 2 * cy;
+    let n = 0;
+    for (const [dx, dy] of DIRS) if (grid[y + dy] && grid[y + dy][x + dx] === 0) n += (cx === 4 && dx === -1) ? 2 : 1;
+    if (n <= 1) knock(cx, cy);
+  }
+  for (let i = 0; i < 7; i++) knock(rnd(CX), rnd(CY));
+  for (let y = 0; y < H; y++) for (let x = 0; x < 9; x++) grid[y][W - 1 - x] = grid[y][x];
+  openCount = 0;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (!grid[y][x]) openCount++;
+}
+
+function mk(x, y, team, kind, base) {
+  return { cx: x, cy: y, dx: 0, dy: 0, t: 0, wx: 0, wy: 0, fx: 0, fy: team === 1 ? -1 : 1,
+           team, kind, base, home: [x, y], dead: 0, inv: 0, wander: 0.3 };
+}
+
+function setup(lv) {
+  level = lv;
+  genMaze();
+  paint = Array.from({ length: H }, () => Array(W).fill(0));
+  paintT = Array.from({ length: H }, () => Array(W).fill(-9));
+  counts = [0, 0, 0];
+  player = mk(9, 19, 1, 'you', 6.4);
+  const n = Math.min(4, 2 + Math.floor((lv - 1) / 2));
+  const sp = Math.min(6, 3.2 + 0.35 * (lv - 1));
+  const homes = [[1, 1], [17, 1], [9, 1], [9, 9]];
+  rivals = [];
+  for (let i = 0; i < n; i++) {
+    const r = mk(homes[i][0], homes[i][1], 2, (lv > 1 && i % 2 === 1) ? 'hunter' : 'painter', sp);
+    r.wander = Math.max(0.1, 0.5 - 0.06 * lv);
+    rivals.push(r);
+  }
+  tanks = []; parts = []; floats = [];
+  timeLeft = ROUND; frenzy = 0; tankTimer = 3;
+  paintTile(9, 19, 1);
+  for (const r of rivals) paintTile(r.cx, r.cy, 2);
+  hud(true);
+}
+
+function paintTile(x, y, team) {
+  if (!open(x, y) || paint[y][x] === team) return;
+  counts[paint[y][x]]--; counts[team]++;
+  paint[y][x] = team; paintT[y][x] = clockNow;
+}
+function burst(x, y, team, r) {
+  for (let yy = Math.floor(y - r); yy <= y + r; yy++) for (let xx = Math.floor(x - r); xx <= x + r; xx++)
+    if ((xx - x) ** 2 + (yy - y) ** 2 <= r * r) paintTile(xx, yy, team);
+  const c = team === 1 ? COL.you : COL.them;
+  for (let i = 0; i < 22; i++) {
+    const a = Math.random() * 6.283, s = 2 + Math.random() * 7;
+    parts.push({ x: x + 0.5, y: y + 0.5, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 0.5 + Math.random() * 0.3, c, r: 0.1 + Math.random() * 0.16 });
+  }
+}
+
+const px = e => e.cx + e.dx * e.t, py = e => e.cy + e.dy * e.t;
+
+function speedOf(e) {
+  let s = e.base;
+  const p = paint[e.cy][e.cx];
+  if (p === e.team) s *= 1.2; else if (p) s *= 0.72;
+  if (e === player && frenzy > 0) s *= 1.2;
+  if (e !== player && frenzy > 0) s *= 0.8;
+  return s;
+}
+
+function bfsStep(e, pred) {
+  const seen = new Uint8Array(W * H), q = [];
+  seen[e.cy * W + e.cx] = 1;
+  for (const d of shuffle(DIRS)) {
+    const x = e.cx + d[0], y = e.cy + d[1];
+    if (open(x, y)) { seen[y * W + x] = 1; q.push([x, y, d]); }
+  }
+  for (let i = 0; i < q.length; i++) {
+    const [x, y, d] = q[i];
+    if (pred(x, y)) return d;
+    for (const [dx, dy] of DIRS) {
+      const nx = x + dx, ny = y + dy;
+      if (open(nx, ny) && !seen[ny * W + nx]) { seen[ny * W + nx] = 1; q.push([nx, ny, d]); }
+    }
+  }
+  return null;
+}
+
+function choose(e) {
+  if (e === player) {
+    if ((e.wx || e.wy) && open(e.cx + e.wx, e.cy + e.wy)) { e.dx = e.wx; e.dy = e.wy; }
+    else if (!open(e.cx + e.dx, e.cy + e.dy)) { e.dx = 0; e.dy = 0; }
+  } else {
+    const opts = DIRS.filter(d => open(e.cx + d[0], e.cy + d[1]));
+    let fwd = opts.filter(d => !(d[0] === -e.dx && d[1] === -e.dy));
+    if (!fwd.length) fwd = opts;
+    const alive = !player.dead;
+    const far = Math.abs(player.cx - e.cx) + Math.abs(player.cy - e.cy);
+    let pick = null;
+    if (frenzy > 0 && alive && far < 7) {
+      let bestD = -1;
+      for (const d of opts) {
+        const dd = Math.abs(player.cx - e.cx - d[0]) + Math.abs(player.cy - e.cy - d[1]) + Math.random() * 0.5;
+        if (dd > bestD) { bestD = dd; pick = d; }
+      }
+    } else if (e.kind === 'hunter' && alive && far < 9 && Math.random() < 0.85) {
+      pick = bfsStep(e, (x, y) => x === player.cx && y === player.cy);
+    } else if (Math.random() >= e.wander) {
+      pick = bfsStep(e, (x, y) => paint[y][x] !== 2);
+    }
+    if (!pick) pick = fwd[rnd(fwd.length)];
+    e.dx = pick[0]; e.dy = pick[1];
+  }
+  if (e.dx || e.dy) { e.fx = e.dx; e.fy = e.dy; }
+}
+
+function arrive(e) {
+  paintTile(e.cx, e.cy, e.team);
+  if (e !== player) return;
+  if (frenzy > 0) for (let y = -1; y <= 1; y++) for (let x = -1; x <= 1; x++) paintTile(e.cx + x, e.cy + y, 1);
+  for (let i = tanks.length - 1; i >= 0; i--) {
+    if (tanks[i].x === e.cx && tanks[i].y === e.cy) {
+      tanks.splice(i, 1);
+      burst(e.cx, e.cy, 1, 3);
+      frenzy = 6;
+      floats.push({ x: e.cx + 0.5, y: e.cy, s: 'MEGA INK!', life: 1 });
+      beep(520, 0.12); setTimeout(() => beep(780, 0.2), 90);
+    }
+  }
+}
+
+function advance(e, dt) {
+  let d = speedOf(e) * dt, guard = 0;
+  while (d > 1e-6 && guard++ < 8) {
+    if (e.t === 0) { choose(e); if (!e.dx && !e.dy) return; }
+    const rem = 1 - e.t;
+    if (d < rem) { e.t += d; d = 0; }
+    else { d -= rem; e.cx += e.dx; e.cy += e.dy; e.t = 0; arrive(e); }
+  }
+}
+
+function steer(x, y) {
+  if (state !== 'play') return;
+  player.wx = x; player.wy = y;
+  if (player.t > 0 && player.dx === -x && player.dy === -y) {
+    player.cx += player.dx; player.cy += player.dy;
+    player.dx = x; player.dy = y; player.t = 1 - player.t;
+    player.fx = x; player.fy = y;
+  }
+}
+
+function splat(e, byTeam) {
+  const x = Math.round(px(e)), y = Math.round(py(e));
+  burst(x, y, byTeam, e === player ? 2.6 : 2.2);
+  e.dead = e === player ? 1.6 : 3;
+  e.cx = e.home[0]; e.cy = e.home[1]; e.t = 0; e.dx = 0; e.dy = 0;
+  if (e === player) {
+    e.wx = 0; e.wy = 0; frenzy = 0;
+    floats.push({ x: x + 0.5, y, s: 'SPLAT!', life: 1 });
+    beep(180, 0.4, 'sawtooth', 0.07);
+  } else {
+    floats.push({ x: x + 0.5, y, s: 'CHOMP!', life: 1 });
+    beep(300, 0.08); setTimeout(() => beep(600, 0.15), 70);
+  }
+}
+
+function update(dt) {
+  timeLeft -= dt;
+  if (frenzy > 0) frenzy = Math.max(0, frenzy - dt);
+  for (const e of [player, ...rivals]) {
+    if (e.dead > 0) {
+      e.dead -= dt;
+      if (e.dead <= 0) { e.dead = 0; e.inv = 2; paintTile(e.cx, e.cy, e.team); }
+      continue;
+    }
+    if (e.inv > 0) e.inv -= dt;
+    advance(e, dt);
+  }
+  if (!player.dead) for (const r of rivals) {
+    if (r.dead) continue;
+    if (Math.hypot(px(r) - px(player), py(r) - py(player)) < 0.7) {
+      if (frenzy > 0) splat(r, 1);
+      else if (player.inv <= 0 && r.inv <= 0.5) { splat(player, 2); break; }
+    }
+  }
+  tankTimer -= dt;
+  if (tankTimer <= 0 && tanks.length < 2) {
+    for (let tries = 0; tries < 40; tries++) {
+      const x = 1 + rnd(W - 2), y = 1 + rnd(H - 2);
+      if (open(x, y) && Math.abs(x - player.cx) + Math.abs(y - player.cy) > 5 && !tanks.some(t => t.x === x && t.y === y)) {
+        tanks.push({ x, y }); break;
+      }
+    }
+    tankTimer = 6.5;
+  }
+  if (timeLeft <= 0) { timeLeft = 0; finish(); }
+}
+
+function fx(dt) {
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i];
+    p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.9; p.vy *= 0.9; p.life -= dt;
+    if (p.life <= 0) parts.splice(i, 1);
+  }
+  for (let i = floats.length - 1; i >= 0; i--) {
+    floats[i].y -= dt * 1.2; floats[i].life -= dt;
+    if (floats[i].life <= 0) floats.splice(i, 1);
+  }
+}
+
+/* ---------- drawing ---------- */
+function blob(e, body, lite, isPlayer) {
+  const x = (px(e) + 0.5) * T, y = (py(e) + 0.5) * T;
+  const big = isPlayer && frenzy > 0;
+  const r = T * (big ? 0.56 : 0.45);
+  const fx_ = e.fx, fy_ = e.fy, sx = -fy_, sy = fx_;
+  const wob = Math.sin(clockNow * 14 + e.home[0]);
+  ctx.save();
+  if (e.inv > 0 && Math.floor(clockNow * 12) % 2) ctx.globalAlpha = 0.45;
+  ctx.lineWidth = Math.max(1.5, T * 0.09);
+  ctx.strokeStyle = COL.night;
+  ctx.fillStyle = lite;
+  if (big) { ctx.shadowColor = COL.chalk; ctx.shadowBlur = T * 0.7; }
+  // drips trailing behind
+  for (let i = -1; i <= 1; i++) {
+    const back = 0.85 + (i === 0 ? 0.22 : 0) + wob * 0.06 * (i || 1);
+    ctx.beginPath();
+    ctx.arc(x - fx_ * r * back + sx * r * 0.55 * i, y - fy_ * r * back + sy * r * 0.55 * i, r * 0.3, 0, 6.283);
+    ctx.fill(); ctx.stroke();
+  }
+  ctx.beginPath(); ctx.arc(x, y, r, 0, 6.283); ctx.fill(); ctx.stroke();
+  ctx.shadowBlur = 0;
+  // ink cap on the back half
+  ctx.fillStyle = body;
+  ctx.beginPath();
+  ctx.arc(x, y, r * 0.86, Math.atan2(fy_, fx_) + 1.9, Math.atan2(fy_, fx_) - 1.9);
+  ctx.fill();
+  const scared = !isPlayer && frenzy > 0;
+  // eyes
+  for (const s of [-1, 1]) {
+    const ex = x + sx * r * 0.42 * s + fx_ * r * 0.08, ey = y + sy * r * 0.42 * s + fy_ * r * 0.08;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(ex, ey, r * 0.27, 0, 6.283); ctx.fill();
+    ctx.fillStyle = COL.night;
+    ctx.beginPath(); ctx.arc(ex + fx_ * r * 0.1, ey + fy_ * r * 0.1, r * (scared ? 0.08 : 0.14), 0, 6.283); ctx.fill();
+    if (!isPlayer && !scared) { // grumpy brow
+      ctx.beginPath();
+      ctx.moveTo(ex - sx * r * 0.3 * s - fx_ * r * 0.1, ey - sy * r * 0.3 * s - fy_ * r * 0.1);
+      ctx.lineTo(ex + sx * r * 0.3 * s - fx_ * r * 0.34, ey + sy * r * 0.3 * s - fy_ * r * 0.34);
+      ctx.stroke();
+    }
+  }
+  // mouth at the front
+  const ang = Math.atan2(fy_, fx_);
+  const gape = isPlayer ? 0.12 + 0.3 * Math.abs(Math.sin(clockNow * (big ? 16 : 10))) : (scared ? 0.22 : 0.08);
+  ctx.fillStyle = COL.night;
+  ctx.beginPath();
+  ctx.ellipse(x + fx_ * r * 0.6, y + fy_ * r * 0.6, r * gape, r * (isPlayer ? 0.4 : 0.22), ang, 0, 6.283);
+  ctx.fill();
+  if (isPlayer && gape > 0.2) {
+    ctx.fillStyle = '#fff';
+    for (const s of [-1, 1]) {
+      ctx.beginPath();
+      ctx.arc(x + fx_ * r * 0.48 + sx * r * 0.2 * s, y + fy_ * r * 0.48 + sy * r * 0.2 * s, r * 0.09, 0, 6.283);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+function draw() {
+  ctx.fillStyle = COL.night;
+  ctx.fillRect(0, 0, W * T, H * T);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    if (grid[y][x]) continue;
+    const p = paint[y][x];
+    ctx.fillStyle = p === 1 ? COL.you : p === 2 ? COL.them : COL.floor;
+    ctx.fillRect(x * T, y * T, T + 0.5, T + 0.5);
+    if (p) {
+      const h = ((x * 73856093) ^ (y * 19349663)) >>> 0;
+      ctx.fillStyle = 'rgba(255,255,255,0.2)';
+      ctx.beginPath();
+      ctx.arc((x + 0.2 + (h % 60) / 100) * T, (y + 0.2 + ((h >> 6) % 60) / 100) * T, T * (0.06 + ((h >> 12) % 8) / 100), 0, 6.283);
+      ctx.fill();
+      const age = clockNow - paintT[y][x];
+      if (age < 0.25) {
+        ctx.fillStyle = 'rgba(255,255,255,' + (0.55 * (1 - age / 0.25)) + ')';
+        ctx.fillRect(x * T, y * T, T, T);
+      }
+    } else {
+      ctx.fillStyle = 'rgba(255,255,255,0.07)';
+      ctx.beginPath(); ctx.arc((x + 0.5) * T, (y + 0.5) * T, T * 0.07, 0, 6.283); ctx.fill();
+    }
+  }
+  for (const t of tanks) {
+    const x = (t.x + 0.5) * T, y = (t.y + 0.5) * T, pulse = 1 + 0.15 * Math.sin(clockNow * 7);
+    ctx.save();
+    ctx.shadowColor = '#fff'; ctx.shadowBlur = T * 0.8;
+    ctx.fillStyle = '#fff'; ctx.strokeStyle = COL.night; ctx.lineWidth = Math.max(1.5, T * 0.08);
+    ctx.beginPath(); // droplet
+    ctx.moveTo(x, y - T * 0.42 * pulse);
+    ctx.quadraticCurveTo(x + T * 0.42 * pulse, y + T * 0.05, x, y + T * 0.36 * pulse);
+    ctx.quadraticCurveTo(x - T * 0.42 * pulse, y + T * 0.05, x, y - T * 0.42 * pulse);
+    ctx.fill(); ctx.shadowBlur = 0; ctx.stroke();
+    ctx.fillStyle = COL.you;
+    ctx.beginPath(); ctx.arc(x, y + T * 0.08, T * 0.12, 0, 6.283); ctx.fill();
+    ctx.restore();
+  }
+  for (const r of rivals) if (!r.dead) blob(r, frenzy > 0 ? '#8d86b8' : COL.them, frenzy > 0 ? '#dcd8f5' : COL.themL, false);
+  if (!player.dead) blob(player, COL.you, COL.youL, true);
+  for (const p of parts) {
+    ctx.globalAlpha = Math.min(1, p.life * 2.5);
+    ctx.fillStyle = p.c;
+    ctx.beginPath(); ctx.arc(p.x * T, p.y * T, p.r * T, 0, 6.283); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  ctx.textAlign = 'center';
+  ctx.font = Math.round(T * 0.8) + 'px Bungee, "Arial Black", sans-serif';
+  for (const f of floats) {
+    ctx.globalAlpha = Math.min(1, f.life * 2);
+    const fxp = Math.min(Math.max(f.x * T, T * 3.2), (W - 3.2) * T);
+    ctx.lineWidth = T * 0.2; ctx.strokeStyle = COL.night; ctx.strokeText(f.s, fxp, f.y * T);
+    ctx.fillStyle = '#fff'; ctx.fillText(f.s, fxp, f.y * T);
+  }
+  ctx.globalAlpha = 1;
+}
+
+/* ---------- HUD and flow ---------- */
+let lastHud = '';
+function hud(force) {
+  const a = Math.round(100 * counts[1] / openCount), b = Math.round(100 * counts[2] / openCount);
+  const s = Math.ceil(timeLeft), fz = Math.ceil(frenzy);
+  const key = a + '|' + b + '|' + s + '|' + fz + '|' + level;
+  if (!force && key === lastHud) return;
+  lastHud = key;
+  $('barYou').style.width = a + '%'; $('barThem').style.width = b + '%';
+  $('pctYou').textContent = 'You ' + a + '%'; $('pctThem').textContent = 'Rivals ' + b + '%';
+  $('clock').textContent = s; $('clock').classList.toggle('low', s <= 10);
+  $('lvl').textContent = 'Level ' + level;
+  $('buff').textContent = fz > 0 ? 'Mega ink ' + fz : '';
+}
+
+function finish() {
+  state = 'over';
+  const a = Math.round(100 * counts[1] / openCount), b = Math.round(100 * counts[2] / openCount);
+  const won = counts[1] > counts[2];
+  hud(true);
+  if (won) {
+    best = Math.max(best, level + 1);
+    try { localStorage.setItem('inkchomp.best', best); } catch (e) {}
+    beep(520, 0.15); setTimeout(() => beep(660, 0.15), 140); setTimeout(() => beep(880, 0.3), 280);
+  } else beep(200, 0.5, 'sawtooth', 0.06);
+  $('cardTitle').textContent = won ? 'Turf claimed!' : counts[1] === counts[2] ? 'Dead heat' : 'Out-inked';
+  $('cardText').innerHTML = '<strong class="you">You ' + a + '%</strong> · <strong class="them">Rivals ' + b + '%</strong>';
+  $('cardTip').textContent = won
+    ? 'Level ' + (level + 1) + ' brings a fresh maze and faster Squirts.'
+    : 'Tip: you roll faster on your own orange and slower through teal.';
+  $('go').textContent = won ? 'Level ' + (level + 1) : 'Try again';
+  $('go').dataset.next = won ? level + 1 : level;
+  $('cardFoot').textContent = 'Furthest level reached: ' + best;
+  $('card').hidden = false;
+  $('go').focus();
+}
+
+function start() {
+  if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
+  if (ac && ac.state === 'suspended') ac.resume();
+  setup(+$('go').dataset.next || 1);
+  $('card').hidden = true;
+  state = 'play';
+  beep(440, 0.1);
+}
+
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  T = Math.max(8, Math.floor(Math.min(stage.clientWidth / W, stage.clientHeight / H)));
+  cv.style.width = W * T + 'px'; cv.style.height = H * T + 'px';
+  cv.width = W * T * dpr; cv.height = H * T * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+let last = 0;
+function frame(ms) {
+  const dt = Math.min(0.05, (ms - last) / 1000 || 0);
+  last = ms; clockNow += dt;
+  if (state === 'play') { update(dt); if (state === 'play') hud(); }
+  fx(dt);
+  draw();
+  requestAnimationFrame(frame);
+}
+
+/* ---------- input ---------- */
+const KEYS = { ArrowUp: [0,-1], ArrowDown: [0,1], ArrowLeft: [-1,0], ArrowRight: [1,0],
+               w: [0,-1], s: [0,1], a: [-1,0], d: [1,0] };
+addEventListener('keydown', e => {
+  const k = KEYS[e.key] || KEYS[e.key.toLowerCase()];
+  if (k) { e.preventDefault(); steer(k[0], k[1]); }
+});
+let tx = 0, ty = 0, touching = false;
+addEventListener('touchstart', e => { touching = true; tx = e.touches[0].clientX; ty = e.touches[0].clientY; }, { passive: true });
+addEventListener('touchmove', e => {
+  if (!touching) return;
+  const dx = e.touches[0].clientX - tx, dy = e.touches[0].clientY - ty;
+  if (Math.max(Math.abs(dx), Math.abs(dy)) < 16) return;
+  if (Math.abs(dx) > Math.abs(dy)) steer(Math.sign(dx), 0); else steer(0, Math.sign(dy));
+  tx = e.touches[0].clientX; ty = e.touches[0].clientY;
+}, { passive: true });
+addEventListener('touchend', () => { touching = false; });
+$('go').addEventListener('click', start);
+$('mute').addEventListener('click', () => {
+  muted = !muted;
+  $('mute').textContent = muted ? 'Sound off' : 'Sound on';
+});
+addEventListener('resize', resize);
+
+/* Boot: show a half-inked maze behind the title card. */
+setup(1);
+for (let i = 0; i < 260; i++) { for (const r of rivals) advance(r, 0.1); }
+{ const ghost = mk(9, 19, 1, 'painter', 6); const keep = paint;
+  const mine = (x, y) => keep[y][x] !== 1;
+  for (let i = 0; i < 90; i++) { const d = bfsStep(ghost, mine); if (!d) break; ghost.cx += d[0]; ghost.cy += d[1]; paintTile(ghost.cx, ghost.cy, 1); } }
+hud(true);
+if (best > 1) $('cardFoot').textContent = 'Furthest level reached: ' + best + ' · arrows, WASD or swipe';
+resize();
+requestAnimationFrame(frame);
+})();
+</script>
