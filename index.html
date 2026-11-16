@@ -4,19 +4,21 @@
 <title>Ink Chomp</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bungee&family=Nunito:wght@600;800&display=swap">
 <style>
-/* Layout: one-screen arcade cabinet. Scoreboard strip on top, maze fills the rest, cards float over the maze. */
+/* Layout: one-screen arcade cabinet. Scoreboard strip on top, a night-time city block fills the rest, cards float over it. */
 :root {
   color-scheme: dark;
-  --night: #120d2e;      /* page and maze walls */
-  --floor: #261d57;      /* unpainted corridor */
-  --panel: #1c1544;
-  --line: #3b2f7a;
+  --night: #0d0b1f;      /* page */
+  --floor: #262938;      /* empty turf in the bar */
+  --panel: #1a1638;
+  --line: #3b356a;
   --chalk: #f3efff;      /* text */
   --dim: #a79fd6;
   --you: #ff8a1f;        /* your ink */
   --you-lite: #ffd7a6;
+  --you-deep: #b55200;
   --them: #18cfc0;       /* rival ink */
   --them-lite: #c4fff8;
+  --them-deep: #0a8a82;
   --display: "Bungee", "Arial Black", Impact, sans-serif;
   --body: "Nunito", "Trebuchet MS", system-ui, sans-serif;
 }
@@ -121,7 +123,7 @@ body {
   align-items: center;
   justify-content: center;
 }
-canvas { display: block; border-radius: 10px; }
+canvas { display: block; border-radius: 8px; box-shadow: 0 0 0 2px #05040f, 0 14px 40px rgba(0, 0, 0, 0.6); }
 .card {
   position: absolute;
   inset: 0;
@@ -161,9 +163,9 @@ canvas { display: block; border-radius: 10px; }
   border-radius: 10px;
   padding: 13px 18px;
   cursor: pointer;
-  box-shadow: 0 5px 0 #b85a00;
+  box-shadow: 0 5px 0 var(--you-deep);
 }
-.go:active { transform: translateY(3px); box-shadow: 0 2px 0 #b85a00; }
+.go:active { transform: translateY(3px); box-shadow: 0 2px 0 var(--you-deep); }
 .small { font-size: 12px !important; letter-spacing: 0.06em; text-transform: uppercase; }
 </style>
 
@@ -185,10 +187,10 @@ canvas { display: block; border-radius: 10px; }
 </div>
 
 <div class="stage" id="stage">
-  <canvas id="c" aria-label="Maze"></canvas>
+  <canvas id="c" aria-label="City block seen from above"></canvas>
   <div class="card" id="card">
-    <h1 id="cardTitle">Paint the maze. Eat the rivals.</h1>
-    <p id="cardText">Everywhere Glob rolls turns <strong class="you">orange</strong>. The Squirts paint it back <strong class="them">teal</strong>. Own the most turf when the 60 seconds run out.</p>
+    <h1 id="cardTitle">Paint the alleys. Eat the rivals.</h1>
+    <p id="cardText">It is night in the back streets. Everywhere Glob rolls turns <strong class="you">orange</strong>. The Squirts paint it back <strong class="them">teal</strong>. Own the most street when the 60 seconds run out.</p>
     <p id="cardTip">Grab a glowing <strong>ink tank</strong> to paint wide and chomp Squirts. Without it, they splat you.</p>
     <button class="go" id="go" type="button">Play</button>
     <p class="small" id="cardFoot">Arrow keys or WASD · swipe on a phone</p>
@@ -197,17 +199,20 @@ canvas { display: block; border-radius: 10px; }
 
 <script>
 (() => {
-const W = 19, H = 21, ROUND = 60;
+let W = 19, H = 21;
+const ROUND = 60;
 const DIRS = [[1,0],[-1,0],[0,1],[0,-1]];
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-const COL = { night: css('--night'), floor: css('--floor'), you: css('--you'), youL: css('--you-lite'),
-              them: css('--them'), themL: css('--them-lite'), chalk: css('--chalk') };
+const COL = { night: css('--night'), you: css('--you'), youL: css('--you-lite'), youD: css('--you-deep'),
+              them: css('--them'), themL: css('--them-lite'), themD: css('--them-deep'), chalk: css('--chalk') };
 const $ = id => document.getElementById(id);
 const cv = $('c'), ctx = cv.getContext('2d'), stage = $('stage');
+const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-let T = 20, grid, paint, paintT, openCount, counts;
+let T = 20, dpr = 1, grid, paint, paintT, openCount, counts, seed = 1;
+let bgC, inkC, inkG, inkDC, inkDG, topC, lightC, vigC;
 let player, rivals, tanks, parts, floats;
-let level = 1, best = 1, timeLeft = ROUND, frenzy = 0, tankTimer = 0, state = 'menu', clockNow = 0;
+let level = 1, best = 1, timeLeft = ROUND, frenzy = 0, tankTimer = 0, state = 'menu', clockNow = 0, shake = 0;
 let muted = false, ac = null;
 
 try { best = +localStorage.getItem('inkchomp.best') || 1; } catch (e) {}
@@ -215,6 +220,7 @@ try { best = +localStorage.getItem('inkchomp.best') || 1; } catch (e) {}
 const rnd = n => Math.floor(Math.random() * n);
 const shuffle = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = rnd(i + 1); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 const open = (x, y) => x >= 0 && y >= 0 && x < W && y < H && grid[y][x] === 0;
+const mul = s => () => { s = s + 0x6D2B79F5 | 0; let t = Math.imul(s ^ s >>> 15, 1 | s); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
 
 function beep(f, d, type, v) {
   if (muted || !ac) return;
@@ -225,11 +231,24 @@ function beep(f, d, type, v) {
   o.connect(g).connect(ac.destination); o.start(t); o.stop(t + d);
 }
 
-/* Maze: carve the left half with a depth-first walk, knock out dead ends so it loops, then mirror. */
+/* The block is sized to the screen: tall on a phone, wide on a desktop. */
+function pickGrid() {
+  const a = stage.clientHeight / Math.max(1, stage.clientWidth);
+  let bestS = 1e9;
+  for (const w of [15, 19, 23, 27]) {
+    let h = Math.round(w * a); if (h % 2 === 0) h++;
+    h = Math.max(13, Math.min(29, h));
+    const s = Math.abs(w * h - 400) + Math.abs(h / w - a) * 200;
+    if (s < bestS) { bestS = s; W = w; H = h; }
+  }
+}
+
+/* Streets: carve the left half with a depth-first walk, knock out dead ends so it loops, then mirror. */
 function genMaze() {
   grid = Array.from({ length: H }, () => Array(W).fill(1));
-  const CX = 5, CY = 10, seen = new Set(['4,9']), stack = [[4, 9]];
-  grid[19][9] = 0;
+  const CX = (W + 1) / 4, CY = (H - 1) / 2, mid = (W - 1) / 2;
+  const seen = new Set([(CX - 1) + ',' + (CY - 1)]), stack = [[CX - 1, CY - 1]];
+  grid[H - 2][mid] = 0;
   while (stack.length) {
     const [cx, cy] = stack[stack.length - 1];
     const opts = shuffle(DIRS).filter(([dx, dy]) => {
@@ -253,11 +272,11 @@ function genMaze() {
   for (let cy = 0; cy < CY; cy++) for (let cx = 0; cx < CX; cx++) {
     const x = 1 + 2 * cx, y = 1 + 2 * cy;
     let n = 0;
-    for (const [dx, dy] of DIRS) if (grid[y + dy] && grid[y + dy][x + dx] === 0) n += (cx === 4 && dx === -1) ? 2 : 1;
+    for (const [dx, dy] of DIRS) if (grid[y + dy] && grid[y + dy][x + dx] === 0) n += (cx === CX - 1 && dx === -1) ? 2 : 1;
     if (n <= 1) knock(cx, cy);
   }
   for (let i = 0; i < 7; i++) knock(rnd(CX), rnd(CY));
-  for (let y = 0; y < H; y++) for (let x = 0; x < 9; x++) grid[y][W - 1 - x] = grid[y][x];
+  for (let y = 0; y < H; y++) for (let x = 0; x < mid; x++) grid[y][W - 1 - x] = grid[y][x];
   openCount = 0;
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (!grid[y][x]) openCount++;
 }
@@ -269,14 +288,18 @@ function mk(x, y, team, kind, base) {
 
 function setup(lv) {
   level = lv;
+  pickGrid();
   genMaze();
+  seed = rnd(1e9);
   paint = Array.from({ length: H }, () => Array(W).fill(0));
   paintT = Array.from({ length: H }, () => Array(W).fill(-9));
   counts = [0, 0, 0];
-  player = mk(9, 19, 1, 'you', 6.4);
+  const mid = (W - 1) / 2;
+  let hm = (H - 1) / 2; if (hm % 2 === 0) hm--;
+  player = mk(mid, H - 2, 1, 'you', 6.4);
   const n = Math.min(4, 2 + Math.floor((lv - 1) / 2));
   const sp = Math.min(6, 3.2 + 0.35 * (lv - 1));
-  const homes = [[1, 1], [17, 1], [9, 1], [9, 9]];
+  const homes = [[1, 1], [W - 2, 1], [mid, 1], [mid, hm]];
   rivals = [];
   for (let i = 0; i < n; i++) {
     const r = mk(homes[i][0], homes[i][1], 2, (lv > 1 && i % 2 === 1) ? 'hunter' : 'painter', sp);
@@ -284,25 +307,196 @@ function setup(lv) {
     rivals.push(r);
   }
   tanks = []; parts = []; floats = [];
-  timeLeft = ROUND; frenzy = 0; tankTimer = 3;
-  paintTile(9, 19, 1);
+  timeLeft = ROUND; frenzy = 0; tankTimer = 3; shake = 0;
+  resize();
+  paintTile(player.cx, player.cy, 1);
   for (const r of rivals) paintTile(r.cx, r.cy, 2);
   hud(true);
+}
+
+/* ---------- the scene: asphalt, buildings, wet paint, street lamps ---------- */
+function layer() {
+  const c = document.createElement('canvas');
+  c.width = W * T * dpr; c.height = H * T * dpr;
+  const g = c.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return [c, g];
+}
+const ROOFS = [
+  { roof: '#3b4156', face: '#1d2030' }, { roof: '#4a4258', face: '#241f30' },
+  { roof: '#34454f', face: '#18232a' }, { roof: '#50464a', face: '#2a2224' }
+];
+function buildScene() {
+  const w = W * T, h = H * T, d = T * 0.3;
+  let g, r = mul(seed);
+  /* asphalt */
+  [bgC, g] = layer();
+  let gr = g.createLinearGradient(0, 0, w, h);
+  gr.addColorStop(0, '#2c2f3d'); gr.addColorStop(1, '#1e2130');
+  g.fillStyle = gr; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < W * H * 16; i++) {
+    g.fillStyle = r() < 0.45 ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.2)';
+    const s = 0.6 + r() * 1.4;
+    g.fillRect(r() * w, r() * h, s, s);
+  }
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    if (grid[y][x]) continue;
+    const L = open(x - 1, y), R = open(x + 1, y), U = open(x, y - 1), D = open(x, y + 1);
+    const n = L + R + U + D, cx = (x + 0.5) * T, cy = (y + 0.5) * T, k = r();
+    g.fillStyle = 'rgba(255,214,110,0.3)';
+    if (L && R && !U && !D) g.fillRect(cx - T * 0.25, cy - T * 0.035, T * 0.5, T * 0.07);
+    if (U && D && !L && !R) g.fillRect(cx - T * 0.035, cy - T * 0.25, T * 0.07, T * 0.5);
+    if (n >= 3 && k < 0.3) { /* manhole */
+      g.fillStyle = '#171922'; g.beginPath(); g.arc(cx, cy, T * 0.27, 0, 6.283); g.fill();
+      g.strokeStyle = 'rgba(255,255,255,0.14)'; g.lineWidth = Math.max(1, T * 0.04); g.stroke();
+      g.beginPath(); g.moveTo(cx - T * 0.17, cy); g.lineTo(cx + T * 0.17, cy);
+      g.moveTo(cx, cy - T * 0.17); g.lineTo(cx, cy + T * 0.17); g.stroke();
+    } else if (k < 0.42) { /* puddle catching the light */
+      g.fillStyle = 'rgba(130,170,255,0.1)'; g.strokeStyle = 'rgba(200,220,255,0.1)'; g.lineWidth = 1;
+      g.beginPath(); g.ellipse(cx + (r() - 0.5) * T * 0.3, cy + (r() - 0.5) * T * 0.3, T * (0.2 + r() * 0.15), T * (0.1 + r() * 0.1), r() * 3, 0, 6.283);
+      g.fill(); g.stroke();
+    } else if (k < 0.55) { /* crack */
+      g.strokeStyle = 'rgba(0,0,0,0.35)'; g.lineWidth = 1; g.beginPath();
+      let px_ = cx + (r() - 0.5) * T * 0.6, py_ = cy + (r() - 0.5) * T * 0.6; g.moveTo(px_, py_);
+      for (let i = 0; i < 3; i++) { px_ += (r() - 0.5) * T * 0.4; py_ += (r() - 0.5) * T * 0.4; g.lineTo(px_, py_); }
+      g.stroke();
+    }
+  }
+  /* buildings: front faces with windows, cast shadows, then rooftops */
+  [topC, g] = layer();
+  const pal = (x, y) => ROOFS[(((x >> 1) * 31 + (y >> 1) * 17 + seed) >>> 0) % 4];
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    if (!grid[y][x]) continue;
+    const X = x * T, Y = y * T, p = pal(x, y);
+    if (open(x, y + 1)) {
+      gr = g.createLinearGradient(0, Y + T, 0, Y + T + d);
+      gr.addColorStop(0, p.face); gr.addColorStop(1, '#0c0d16');
+      g.fillStyle = gr; g.fillRect(X, Y + T, T + 0.5, d);
+      for (let i = 0; i < 2; i++) {
+        const lit = r() < 0.45;
+        g.save();
+        if (lit) { g.shadowColor = '#ffc860'; g.shadowBlur = T * 0.35; }
+        g.fillStyle = lit ? '#ffd98a' : '#0a0b13';
+        g.fillRect(X + T * (0.16 + 0.46 * i), Y + T + d * 0.22, T * 0.22, d * 0.5);
+        g.restore();
+      }
+      gr = g.createLinearGradient(0, Y + T + d, 0, Y + T + d + T * 0.45);
+      gr.addColorStop(0, 'rgba(0,0,0,0.55)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = gr; g.fillRect(X, Y + T + d, T + 0.5, T * 0.45);
+    }
+    if (open(x + 1, y)) {
+      gr = g.createLinearGradient(X + T, 0, X + T + T * 0.32, 0);
+      gr.addColorStop(0, 'rgba(0,0,0,0.42)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = gr; g.fillRect(X + T, Y, T * 0.32, T + 0.5);
+    }
+  }
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    if (!grid[y][x]) continue;
+    const X = x * T, Y = y * T;
+    g.fillStyle = pal(x, y).roof; g.fillRect(X, Y, T + 0.5, T + 0.5);
+    for (let i = 0; i < 6; i++) { g.fillStyle = r() < 0.5 ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.12)'; g.fillRect(X + r() * T, Y + r() * T, 1.2, 1.2); }
+  }
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    if (!grid[y][x]) continue;
+    const X = x * T, Y = y * T, e = T * 0.1, k = r();
+    /* parapets where the roof meets the street */
+    g.fillStyle = 'rgba(255,255,255,0.2)';
+    if (open(x, y - 1)) g.fillRect(X, Y, T, e);
+    if (open(x - 1, y)) g.fillRect(X, Y, e, T);
+    g.fillStyle = 'rgba(0,0,0,0.3)';
+    if (open(x, y + 1)) g.fillRect(X, Y + T - e, T, e);
+    if (open(x + 1, y)) g.fillRect(X + T - e, Y, e, T);
+    if (k < 0.1) { /* air conditioner */
+      g.fillStyle = 'rgba(0,0,0,0.4)'; g.fillRect(X + T * 0.27, Y + T * 0.33, T * 0.55, T * 0.45);
+      g.fillStyle = '#8e95a8'; g.fillRect(X + T * 0.22, Y + T * 0.26, T * 0.55, T * 0.45);
+      g.fillStyle = '#2a2d3a'; g.beginPath(); g.arc(X + T * 0.5, Y + T * 0.48, T * 0.15, 0, 6.283); g.fill();
+      g.strokeStyle = '#8e95a8'; g.lineWidth = 1; g.beginPath();
+      g.moveTo(X + T * 0.38, Y + T * 0.48); g.lineTo(X + T * 0.62, Y + T * 0.48); g.stroke();
+    } else if (k < 0.2) { /* lit skylight */
+      g.save(); g.shadowColor = '#ffc860'; g.shadowBlur = T * 0.5;
+      g.fillStyle = '#ffd98a'; g.fillRect(X + T * 0.26, Y + T * 0.26, T * 0.48, T * 0.48); g.restore();
+      g.strokeStyle = '#3a2a10'; g.lineWidth = Math.max(1, T * 0.04);
+      g.strokeRect(X + T * 0.26, Y + T * 0.26, T * 0.48, T * 0.48);
+      g.beginPath(); g.moveTo(X + T * 0.5, Y + T * 0.26); g.lineTo(X + T * 0.5, Y + T * 0.74); g.stroke();
+    } else if (k < 0.27) { /* vent */
+      g.fillStyle = 'rgba(0,0,0,0.4)'; g.beginPath(); g.arc(X + T * 0.54, Y + T * 0.56, T * 0.18, 0, 6.283); g.fill();
+      g.fillStyle = '#737a90'; g.beginPath(); g.arc(X + T * 0.5, Y + T * 0.5, T * 0.18, 0, 6.283); g.fill();
+      g.fillStyle = '#22242f'; g.beginPath(); g.arc(X + T * 0.5, Y + T * 0.5, T * 0.09, 0, 6.283); g.fill();
+    } else if (k < 0.35) { /* roof garden */
+      for (let i = 0; i < 4; i++) {
+        g.fillStyle = i % 2 ? '#3f7d4c' : '#2c5f3a';
+        g.beginPath(); g.arc(X + T * (0.3 + r() * 0.4), Y + T * (0.3 + r() * 0.4), T * (0.12 + r() * 0.08), 0, 6.283); g.fill();
+      }
+    }
+  }
+  /* street lamps */
+  [lightC, g] = layer();
+  const spots = [];
+  for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++)
+    if (!grid[y][x] && open(x - 1, y) + open(x + 1, y) + open(x, y - 1) + open(x, y + 1) >= 3) spots.push([x, y, r()]);
+  spots.sort((a, b) => a[2] - b[2]);
+  const lamps = [];
+  for (const s of spots) {
+    if (lamps.length >= Math.ceil(W * H / 60)) break;
+    if (lamps.every(l => Math.abs(l[0] - s[0]) + Math.abs(l[1] - s[1]) >= 5)) lamps.push(s);
+  }
+  for (const [x, y] of lamps) {
+    const cx = (x + 0.5) * T, cy = (y + 0.5) * T;
+    gr = g.createRadialGradient(cx, cy, 0, cx, cy, T * 3.4);
+    gr.addColorStop(0, 'rgba(255,214,150,0.4)'); gr.addColorStop(0.35, 'rgba(255,190,110,0.14)'); gr.addColorStop(1, 'rgba(255,190,110,0)');
+    g.fillStyle = gr; g.fillRect(cx - T * 3.4, cy - T * 3.4, T * 6.8, T * 6.8);
+  }
+  /* night falls off toward the edges */
+  [vigC, g] = layer();
+  gr = g.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.3, w / 2, h / 2, Math.hypot(w, h) / 2);
+  gr.addColorStop(0, 'rgba(6,4,22,0.08)'); gr.addColorStop(1, 'rgba(6,4,22,0.62)');
+  g.fillStyle = gr; g.fillRect(0, 0, w, h);
+  /* paint layers: a dark underside gives the ink some thickness */
+  [inkC, inkG] = layer(); [inkDC, inkDG] = layer();
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (paint[y][x]) stamp(x, y, paint[y][x]);
+}
+
+function stamp(x, y, team) {
+  if (!inkG) return;
+  const r = mul((x * 73856093) ^ (y * 19349663) ^ (team * 83492791) ^ seed);
+  const cx = (x + 0.5) * T, cy = (y + 0.5) * T, cs = [];
+  for (let i = 0; i < 7; i++) {
+    const a = r() * 6.283, dist = (0.28 + r() * 0.22) * T;
+    cs.push([cx + Math.cos(a) * dist, cy + Math.sin(a) * dist, (0.18 + r() * 0.14) * T]);
+  }
+  for (const [g, c] of [[inkDG, team === 1 ? COL.youD : COL.themD], [inkG, team === 1 ? COL.you : COL.them]]) {
+    g.fillStyle = c;
+    g.fillRect(x * T - 0.5, y * T - 0.5, T + 1, T + 1);
+    g.beginPath();
+    for (const [a, b, rad] of cs) { g.moveTo(a + rad, b); g.arc(a, b, rad, 0, 6.283); }
+    g.fill();
+  }
+  /* wet shine */
+  inkG.fillStyle = 'rgba(255,255,255,0.3)';
+  for (let i = 0; i < 2; i++) if (r() < 0.6) {
+    inkG.beginPath();
+    inkG.ellipse(cx + (r() - 0.5) * T * 0.6, cy + (r() - 0.5) * T * 0.6, T * (0.08 + r() * 0.1), T * 0.035, -0.6, 0, 6.283);
+    inkG.fill();
+  }
+  inkG.fillStyle = 'rgba(0,0,0,0.1)';
+  inkG.beginPath(); inkG.arc(cx + (r() - 0.5) * T * 0.5, cy + (r() - 0.5) * T * 0.5, T * 0.06, 0, 6.283); inkG.fill();
 }
 
 function paintTile(x, y, team) {
   if (!open(x, y) || paint[y][x] === team) return;
   counts[paint[y][x]]--; counts[team]++;
   paint[y][x] = team; paintT[y][x] = clockNow;
+  stamp(x, y, team);
 }
 function burst(x, y, team, r) {
   for (let yy = Math.floor(y - r); yy <= y + r; yy++) for (let xx = Math.floor(x - r); xx <= x + r; xx++)
     if ((xx - x) ** 2 + (yy - y) ** 2 <= r * r) paintTile(xx, yy, team);
   const c = team === 1 ? COL.you : COL.them;
-  for (let i = 0; i < 22; i++) {
-    const a = Math.random() * 6.283, s = 2 + Math.random() * 7;
-    parts.push({ x: x + 0.5, y: y + 0.5, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 0.5 + Math.random() * 0.3, c, r: 0.1 + Math.random() * 0.16 });
+  for (let i = 0; i < 26; i++) {
+    const a = Math.random() * 6.283, s = 2 + Math.random() * 8;
+    parts.push({ x: x + 0.5, y: y + 0.5, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 0.5 + Math.random() * 0.35, c, r: 0.08 + Math.random() * 0.17 });
   }
+  if (!calm) shake = Math.max(shake, r > 2.5 ? 0.35 : 0.25);
 }
 
 const px = e => e.cx + e.dx * e.t, py = e => e.cy + e.dy * e.t;
@@ -445,6 +639,7 @@ function update(dt) {
 }
 
 function fx(dt) {
+  if (shake > 0) shake = Math.max(0, shake - dt * 1.4);
   for (let i = parts.length - 1; i >= 0; i--) {
     const p = parts[i];
     p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.9; p.vy *= 0.9; p.life -= dt;
@@ -457,7 +652,7 @@ function fx(dt) {
 }
 
 /* ---------- drawing ---------- */
-function blob(e, body, lite, isPlayer) {
+function blob(e, body, lite, deep, isPlayer) {
   const x = (px(e) + 0.5) * T, y = (py(e) + 0.5) * T;
   const big = isPlayer && frenzy > 0;
   const r = T * (big ? 0.56 : 0.45);
@@ -465,40 +660,45 @@ function blob(e, body, lite, isPlayer) {
   const wob = Math.sin(clockNow * 14 + e.home[0]);
   ctx.save();
   if (e.inv > 0 && Math.floor(clockNow * 12) % 2) ctx.globalAlpha = 0.45;
-  ctx.lineWidth = Math.max(1.5, T * 0.09);
-  ctx.strokeStyle = COL.night;
-  ctx.fillStyle = lite;
-  if (big) { ctx.shadowColor = COL.chalk; ctx.shadowBlur = T * 0.7; }
-  // drips trailing behind
+  /* shadow on the street */
+  ctx.fillStyle = 'rgba(0,0,0,0.42)';
+  ctx.beginPath(); ctx.ellipse(x + r * 0.22, y + r * 0.5, r * 1.02, r * 0.72, 0, 0, 6.283); ctx.fill();
+  ctx.lineWidth = Math.max(1, T * 0.06);
+  ctx.strokeStyle = 'rgba(8,6,20,0.85)';
+  /* drips trailing behind */
+  ctx.fillStyle = body;
   for (let i = -1; i <= 1; i++) {
     const back = 0.85 + (i === 0 ? 0.22 : 0) + wob * 0.06 * (i || 1);
     ctx.beginPath();
     ctx.arc(x - fx_ * r * back + sx * r * 0.55 * i, y - fy_ * r * back + sy * r * 0.55 * i, r * 0.3, 0, 6.283);
     ctx.fill(); ctx.stroke();
   }
-  ctx.beginPath(); ctx.arc(x, y, r, 0, 6.283); ctx.fill(); ctx.stroke();
-  ctx.shadowBlur = 0;
-  // ink cap on the back half
-  ctx.fillStyle = body;
-  ctx.beginPath();
-  ctx.arc(x, y, r * 0.86, Math.atan2(fy_, fx_) + 1.9, Math.atan2(fy_, fx_) - 1.9);
-  ctx.fill();
+  /* glossy ball */
+  const g = ctx.createRadialGradient(x - r * 0.35, y - r * 0.42, r * 0.08, x, y, r);
+  g.addColorStop(0, lite); g.addColorStop(0.5, body); g.addColorStop(1, deep);
+  ctx.fillStyle = g;
+  if (isPlayer) { ctx.shadowColor = big ? '#fff' : COL.you; ctx.shadowBlur = T * (big ? 0.9 : 0.45); }
+  ctx.beginPath(); ctx.arc(x, y, r, 0, 6.283); ctx.fill();
+  ctx.shadowBlur = 0; ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,0.7)';
+  ctx.beginPath(); ctx.ellipse(x - r * 0.42, y - r * 0.5, r * 0.2, r * 0.1, -0.6, 0, 6.283); ctx.fill();
   const scared = !isPlayer && frenzy > 0;
-  // eyes
+  /* eyes */
+  ctx.strokeStyle = COL.night;
   for (const s of [-1, 1]) {
     const ex = x + sx * r * 0.42 * s + fx_ * r * 0.08, ey = y + sy * r * 0.42 * s + fy_ * r * 0.08;
     ctx.fillStyle = '#fff';
     ctx.beginPath(); ctx.arc(ex, ey, r * 0.27, 0, 6.283); ctx.fill();
     ctx.fillStyle = COL.night;
     ctx.beginPath(); ctx.arc(ex + fx_ * r * 0.1, ey + fy_ * r * 0.1, r * (scared ? 0.08 : 0.14), 0, 6.283); ctx.fill();
-    if (!isPlayer && !scared) { // grumpy brow
+    if (!isPlayer && !scared) { /* grumpy brow */
       ctx.beginPath();
       ctx.moveTo(ex - sx * r * 0.3 * s - fx_ * r * 0.1, ey - sy * r * 0.3 * s - fy_ * r * 0.1);
       ctx.lineTo(ex + sx * r * 0.3 * s - fx_ * r * 0.34, ey + sy * r * 0.3 * s - fy_ * r * 0.34);
       ctx.stroke();
     }
   }
-  // mouth at the front
+  /* mouth at the front */
   const ang = Math.atan2(fy_, fx_);
   const gape = isPlayer ? 0.12 + 0.3 * Math.abs(Math.sin(clockNow * (big ? 16 : 10))) : (scared ? 0.22 : 0.08);
   ctx.fillStyle = COL.night;
@@ -517,35 +717,33 @@ function blob(e, body, lite, isPlayer) {
 }
 
 function draw() {
-  ctx.fillStyle = COL.night;
-  ctx.fillRect(0, 0, W * T, H * T);
+  const w = W * T, h = H * T;
+  ctx.fillStyle = '#05040f';
+  ctx.fillRect(0, 0, w, h);
+  ctx.save();
+  if (shake > 0) ctx.translate((Math.random() - 0.5) * shake * T * 0.6, (Math.random() - 0.5) * shake * T * 0.6);
+  ctx.drawImage(bgC, 0, 0, w, h);
+  ctx.drawImage(inkDC, 0, T * 0.08, w, h);
+  ctx.drawImage(inkC, 0, 0, w, h);
+  /* fresh paint flashes as it lands */
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    if (grid[y][x]) continue;
-    const p = paint[y][x];
-    ctx.fillStyle = p === 1 ? COL.you : p === 2 ? COL.them : COL.floor;
-    ctx.fillRect(x * T, y * T, T + 0.5, T + 0.5);
-    if (p) {
-      const h = ((x * 73856093) ^ (y * 19349663)) >>> 0;
-      ctx.fillStyle = 'rgba(255,255,255,0.2)';
-      ctx.beginPath();
-      ctx.arc((x + 0.2 + (h % 60) / 100) * T, (y + 0.2 + ((h >> 6) % 60) / 100) * T, T * (0.06 + ((h >> 12) % 8) / 100), 0, 6.283);
-      ctx.fill();
-      const age = clockNow - paintT[y][x];
-      if (age < 0.25) {
-        ctx.fillStyle = 'rgba(255,255,255,' + (0.55 * (1 - age / 0.25)) + ')';
-        ctx.fillRect(x * T, y * T, T, T);
-      }
-    } else {
-      ctx.fillStyle = 'rgba(255,255,255,0.07)';
-      ctx.beginPath(); ctx.arc((x + 0.5) * T, (y + 0.5) * T, T * 0.07, 0, 6.283); ctx.fill();
+    const age = clockNow - paintT[y][x];
+    if (age < 0.3 && paint[y][x]) {
+      ctx.fillStyle = 'rgba(255,255,255,' + (0.5 * (1 - age / 0.3)) + ')';
+      ctx.beginPath(); ctx.arc((x + 0.5) * T, (y + 0.5) * T, T * (0.35 + age * 1.2), 0, 6.283); ctx.fill();
     }
   }
+  ctx.drawImage(topC, 0, 0, w, h);
   for (const t of tanks) {
     const x = (t.x + 0.5) * T, y = (t.y + 0.5) * T, pulse = 1 + 0.15 * Math.sin(clockNow * 7);
     ctx.save();
-    ctx.shadowColor = '#fff'; ctx.shadowBlur = T * 0.8;
-    ctx.fillStyle = '#fff'; ctx.strokeStyle = COL.night; ctx.lineWidth = Math.max(1.5, T * 0.08);
-    ctx.beginPath(); // droplet
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.beginPath(); ctx.ellipse(x + T * 0.08, y + T * 0.34, T * 0.3, T * 0.14, 0, 0, 6.283); ctx.fill();
+    ctx.shadowColor = '#fff'; ctx.shadowBlur = T * 0.9;
+    const g = ctx.createRadialGradient(x - T * 0.1, y - T * 0.05, T * 0.02, x, y, T * 0.42);
+    g.addColorStop(0, '#fff'); g.addColorStop(1, '#ffd9a8');
+    ctx.fillStyle = g; ctx.strokeStyle = 'rgba(8,6,20,0.85)'; ctx.lineWidth = Math.max(1, T * 0.06);
+    ctx.beginPath(); /* droplet */
     ctx.moveTo(x, y - T * 0.42 * pulse);
     ctx.quadraticCurveTo(x + T * 0.42 * pulse, y + T * 0.05, x, y + T * 0.36 * pulse);
     ctx.quadraticCurveTo(x - T * 0.42 * pulse, y + T * 0.05, x, y - T * 0.42 * pulse);
@@ -554,14 +752,30 @@ function draw() {
     ctx.beginPath(); ctx.arc(x, y + T * 0.08, T * 0.12, 0, 6.283); ctx.fill();
     ctx.restore();
   }
-  for (const r of rivals) if (!r.dead) blob(r, frenzy > 0 ? '#8d86b8' : COL.them, frenzy > 0 ? '#dcd8f5' : COL.themL, false);
-  if (!player.dead) blob(player, COL.you, COL.youL, true);
+  for (const r of rivals) if (!r.dead) {
+    if (frenzy > 0) blob(r, '#9a94c4', '#f0eeff', '#5d578a', false);
+    else blob(r, COL.them, COL.themL, COL.themD, false);
+  }
+  if (!player.dead) blob(player, COL.you, COL.youL, COL.youD, true);
   for (const p of parts) {
     ctx.globalAlpha = Math.min(1, p.life * 2.5);
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.beginPath(); ctx.arc(p.x * T + 1.5, p.y * T + 2, p.r * T, 0, 6.283); ctx.fill();
     ctx.fillStyle = p.c;
     ctx.beginPath(); ctx.arc(p.x * T, p.y * T, p.r * T, 0, 6.283); ctx.fill();
   }
   ctx.globalAlpha = 1;
+  /* light: lamps, the glow Glob carries, then the dark */
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.drawImage(lightC, 0, 0, w, h);
+  if (!player.dead) {
+    const x = (px(player) + 0.5) * T, y = (py(player) + 0.5) * T, rr = T * (frenzy > 0 ? 3.4 : 2.4);
+    const g = ctx.createRadialGradient(x, y, 0, x, y, rr);
+    g.addColorStop(0, frenzy > 0 ? 'rgba(255,240,210,0.34)' : 'rgba(255,160,70,0.22)'); g.addColorStop(1, 'rgba(255,160,70,0)');
+    ctx.fillStyle = g; ctx.fillRect(x - rr, y - rr, rr * 2, rr * 2);
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.drawImage(vigC, 0, 0, w, h);
   ctx.textAlign = 'center';
   ctx.font = Math.round(T * 0.8) + 'px Bungee, "Arial Black", sans-serif';
   for (const f of floats) {
@@ -571,6 +785,7 @@ function draw() {
     ctx.fillStyle = '#fff'; ctx.fillText(f.s, fxp, f.y * T);
   }
   ctx.globalAlpha = 1;
+  ctx.restore();
 }
 
 /* ---------- HUD and flow ---------- */
@@ -598,10 +813,10 @@ function finish() {
     try { localStorage.setItem('inkchomp.best', best); } catch (e) {}
     beep(520, 0.15); setTimeout(() => beep(660, 0.15), 140); setTimeout(() => beep(880, 0.3), 280);
   } else beep(200, 0.5, 'sawtooth', 0.06);
-  $('cardTitle').textContent = won ? 'Turf claimed!' : counts[1] === counts[2] ? 'Dead heat' : 'Out-inked';
+  $('cardTitle').textContent = won ? 'Streets claimed!' : counts[1] === counts[2] ? 'Dead heat' : 'Out-inked';
   $('cardText').innerHTML = '<strong class="you">You ' + a + '%</strong> · <strong class="them">Rivals ' + b + '%</strong>';
   $('cardTip').textContent = won
-    ? 'Level ' + (level + 1) + ' brings a fresh maze and faster Squirts.'
+    ? 'Level ' + (level + 1) + ' is a new block with faster Squirts.'
     : 'Tip: you roll faster on your own orange and slower through teal.';
   $('go').textContent = won ? 'Level ' + (level + 1) : 'Try again';
   $('go').dataset.next = won ? level + 1 : level;
@@ -620,11 +835,12 @@ function start() {
 }
 
 function resize() {
-  const dpr = window.devicePixelRatio || 1;
+  dpr = Math.min(2, window.devicePixelRatio || 1);
   T = Math.max(8, Math.floor(Math.min(stage.clientWidth / W, stage.clientHeight / H)));
   cv.style.width = W * T + 'px'; cv.style.height = H * T + 'px';
   cv.width = W * T * dpr; cv.height = H * T * dpr;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  buildScene();
 }
 
 let last = 0;
@@ -661,15 +877,13 @@ $('mute').addEventListener('click', () => {
 });
 addEventListener('resize', resize);
 
-/* Boot: show a half-inked maze behind the title card. */
+/* Boot: show a half-painted block behind the title card. */
 setup(1);
-for (let i = 0; i < 260; i++) { for (const r of rivals) advance(r, 0.1); }
-{ const ghost = mk(9, 19, 1, 'painter', 6); const keep = paint;
-  const mine = (x, y) => keep[y][x] !== 1;
-  for (let i = 0; i < 90; i++) { const d = bfsStep(ghost, mine); if (!d) break; ghost.cx += d[0]; ghost.cy += d[1]; paintTile(ghost.cx, ghost.cy, 1); } }
+for (let i = 0; i < 200; i++) { for (const r of rivals) advance(r, 0.1); }
+{ const ghost = mk(player.cx, player.cy, 1, 'painter', 6);
+  for (let i = 0; i < 90; i++) { const d = bfsStep(ghost, (x, y) => paint[y][x] !== 1); if (!d) break; ghost.cx += d[0]; ghost.cy += d[1]; paintTile(ghost.cx, ghost.cy, 1); } }
 hud(true);
 if (best > 1) $('cardFoot').textContent = 'Furthest level reached: ' + best + ' · arrows, WASD or swipe';
-resize();
 requestAnimationFrame(frame);
 })();
 </script>
