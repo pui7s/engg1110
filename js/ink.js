@@ -59,7 +59,7 @@ const Scene = (() => {
       far: ['100,118,134', '88,118,128', '122,116,112', '110,120,134'][s],
       mid: ['74,92,104', '62,92,98', '98,90,84', '84,94,108'][s],
       near: ['44,58,58', '38,60,54', '68,58,48', '50,56,64'][s],
-      tint: ['92,140,112', '62,122,98', '176,108,58', '168,174,182'][s],
+      tint: ['92,140,112', '62,122,98', '158,112,72', '168,174,182'][s],
       ground: ['150,166,112', '112,152,104', '182,150,92', '170,170,166'][s],
       grass: ['88,128,82', '64,116,78', '150,122,66', '122,118,106'][s],
       tree: term <= 1 ? 'bud' : term <= 5 ? 'bloom' : term <= 8 ? 'leaf' : term <= 11 ? 'fruit' : term <= 13 ? 'leaf' : term <= 17 ? 'autumn' : 'bare',
@@ -392,7 +392,7 @@ const Scene = (() => {
     const pC = [{ c: -.02, w: .27, h: .28, p: .9 }, { c: .17, w: .13, h: .13, p: 1 }, { c: 1.02, w: .25, h: .25, p: .9 }, { c: .855, w: .1, h: .1, p: 1 }];
     const hC = ridgeFn(52, pC, .012, hs), baseC = hz + H * .04;
     drawRidge(c, hC, baseC, P.near, .62, H * .03, 1);
-    for (let x = 0; x < W; x += 4) { const h = hC(x); if (h > .03) blob(c, x, baseC - h * H * .55, h * H * .5, P.tint, P.s === 3 ? .1 : .16, 1.2, 1); }
+    for (let x = 0; x < W; x += 4) { const h = hC(x); if (h > .03) blob(c, x, baseC - h * H * .55, h * H * .5, P.tint, P.s >= 2 ? .1 : .16, 1.2, 1); }
     cun(c, hC, baseC, mul(53), Math.round(W * .9), INK, .2);
     ridgeLine(c, hC, baseC, mul(54), INK, .7);
     const rp = mul(55);
@@ -440,20 +440,20 @@ const Scene = (() => {
       for (const side of [-1, 1]) {
         if (rt() < .2) continue;
         const x = at.x + side * (at.w / 2 + s * (3 + rt() * 7));
-        if (x > G.fx0 * W - U * 3 && x < G.pt(1, clamp((y - G.fTop) / (G.fBot - G.fTop), 0, 1))[0] + U * 5 && y > G.fTop - U * 2) continue;
+        if (x > G.fx0 * W - s * 9 && x < G.pt(1, clamp((y - G.fTop) / (G.fBot - G.fTop), 0, 1))[0] + s * 9 && y > G.fTop - U * 2) continue;
         if (Math.abs(x - G.site.wheel[0]) < U * 7 && Math.abs(y - G.site.wheel[1]) < U * 6) continue;
         if (Math.abs(x - G.site.pavilion[0]) < U * 9 && Math.abs(y - G.site.pavilion[1]) < U * 8) continue;
         items.push({ y, f: () => tree(c, x, y, s, mul(700 + (y * 13 + side * 7 | 0)), mode, snow) });
       }
     }
-    for (let i = 0; i < 9; i++) { const x = W * (rt() < .5 ? rt() * .1 : .9 + rt() * .1), y = hz + H * (.07 + rt() * .14), s = U * (.5 + rt() * .5), sd = 900 + i; items.push({ y, f: () => tree(c, x, y, s, mul(sd), mode, snow) }); }
+    for (let i = 0; i < 9; i++) { const x = W * (rt() < .5 ? rt() * .1 : .9 + rt() * .1), y = hz + H * (.07 + rt() * .14), s = U * (.4 + rt() * .36), sd = 900 + i; items.push({ y, f: () => tree(c, x, y, s, mul(sd), mode, snow) }); }
     // 桃源遠處一片粉霞
     if (mode === 'bloom') for (let i = 0; i < 30; i++) { const y = hz + H * (.02 + rt() * .07), at = G.riverAt(y); blob(c, at.x + (rt() - .5) * W * .3, y, H * (.012 + rt() * .02), '236,150,172', .22 + rt() * .2, 2.2, .7); }
     else for (let i = 0; i < 30; i++) rt();
     // 竹
     const bs = G.site.bamboo; items.push({ y: bs[1], f: () => bamboo(c, bs[0], bs[1], U * .62, mul(81), snow) });
     // 親手栽的桃樹
-    for (let i = 0; i < Math.min(V.trees || 0, G.orchard.length); i++) { const o = G.orchard[i]; items.push({ y: o[1], f: () => tree(c, o[0], o[1], U * .92, mul(1200 + i * 17), mode, snow) }); }
+    for (let i = 0; i < Math.min(V.trees || 0, G.orchard.length); i++) { const o = G.orchard[i]; items.push({ y: o[1], f: () => tree(c, o[0], o[1], U * .6, mul(1200 + i * 17), mode, snow) }); }
     // 屋舍
     const S = G.site, bu = U * .86;
     if (B.study) items.push({ y: S.study[1], f: () => study(c, S.study[0], S.study[1], bu * .9) });

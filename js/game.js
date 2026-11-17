@@ -200,7 +200,7 @@
   /* ---------- 歇息：過一候 ---------- */
   function endTurn() {
     if (ui.busy) return;
-    closePop(); setSticky(null);
+    closePop(); setSticky(null); $('#toasts').textContent = '';
     const ev = []; ui.ev = ev;
     const T0 = temp(), died = [], frozen = [];
     S.plots.forEach(p => {
