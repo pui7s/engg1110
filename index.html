@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- app:head -->
+<title>桃花源耕讀</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=LXGW+WenKai+TC:wght@400;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&text=%E6%A1%83%E8%8A%B1%E6%BA%90&display=swap">
+<!-- app:head-end -->
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<!-- app:body -->
+<div id="app">
+  <header class="hud">
+    <div class="date">
+      <div class="term" id="hTerm">驚蟄</div>
+      <div class="sub"><span id="hHou">初候 · 桃始華</span><span id="hYear">第一年 · 春</span></div>
+    </div>
+    <div class="wx"><span class="glyph" id="hWxG">晴</span><span id="hWx">晴 · 天涼</span></div>
+    <ul class="res" aria-label="家當">
+      <li><b>錢</b><span id="rCoins">0</span></li>
+      <li><b>糧</b><span id="rFood">0</span></li>
+      <li><b>木</b><span id="rWood">0</span></li>
+      <li><b>石</b><span id="rStone">0</span></li>
+      <li><b>肥</b><span id="rFert">0</span></li>
+    </ul>
+    <div class="vigor"><b>體力</b><span class="pips" id="hPips" role="img" aria-label="體力"></span></div>
+    <button class="rank" id="hRank" type="button" data-act="book" title="翻開農書">
+      <span id="hRankName">初來客</span><span class="rank-bar"><i id="hRankBar"></i></span>
+    </button>
+  </header>
+
+  <p class="hint" id="hint" aria-live="polite"></p>
+
+  <main class="stage" id="stage">
+    <canvas id="scene" aria-hidden="true"></canvas>
+    <div class="title-art" aria-hidden="true">
+      <span class="t-main">桃花源</span>
+      <span class="t-side"><span class="t-sub">耕讀歲月</span><span class="seal">歸田</span></span>
+    </div>
+    <div class="plots" id="plots" aria-label="田地"></div>
+    <div class="pop" id="pop" hidden></div>
+    <button class="sticky" id="sticky" type="button" hidden></button>
+    <div class="toasts" id="toasts" aria-live="polite"></div>
+    <div class="veil" id="veil" aria-hidden="true"><div class="veil-in"><div class="veil-term" id="vTerm"></div><div class="veil-hou" id="vHou"></div></div></div>
+  </main>
+
+  <nav class="dock" aria-label="行事">
+    <div class="tools">
+      <button class="tool" type="button" data-act="sky"><span class="g">天</span><span class="l">觀天</span><i class="dot" id="dotSky" hidden></i></button>
+      <button class="tool" type="button" data-act="ask"><span class="g">問</span><span class="l">請教</span><i class="dot" id="dotAsk" hidden></i></button>
+      <button class="tool" type="button" data-act="wood"><span class="g">柴</span><span class="l">砍柴 <small>2</small></span></button>
+      <button class="tool" type="button" data-act="stone"><span class="g">石</span><span class="l">採石 <small>2</small></span></button>
+      <button class="tool" type="button" data-act="fish"><span class="g">漁</span><span class="l">垂釣 <small>2</small></span></button>
+      <button class="tool" type="button" data-act="market"><span class="g">市</span><span class="l">市集</span></button>
+      <button class="tool" type="button" data-act="build"><span class="g">築</span><span class="l">營造</span><i class="dot" id="dotBuild" hidden></i></button>
+      <button class="tool" type="button" data-act="book"><span class="g">書</span><span class="l">農書</span></button>
+    </div>
+    <button class="rest" id="rest" type="button" data-act="rest"><span>歇息</span><small>到下一候</small></button>
+  </nav>
+</div>
+
+<div class="sheet" id="sheet" hidden>
+  <div class="sheet-card" id="sheetCard" role="dialog" aria-modal="true" aria-labelledby="sheetTitle" tabindex="-1">
+    <header class="sheet-head"><h2 id="sheetTitle"></h2><button class="x" type="button" id="sheetX" aria-label="關閉">✕</button></header>
+    <div class="sheet-body" id="sheetBody"></div>
+  </div>
+</div>
+<!-- app:body-end -->
+<script src="js/data.js"></script>
+<script src="js/ink.js"></script>
+<script src="js/game.js"></script>
+</body>
+</html>
