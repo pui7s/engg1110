@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Dream Home Studio</title>
+<meta name="description" content="築夢家 Dream Home Studio：零經驗也能即時設計夢想中的家。Design your dream home in real time, no experience needed.">
+<meta name="theme-color" content="#ffc21a">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="app" id="app">
+  <header class="bar" id="bar"></header>
+  <div class="work">
+    <aside class="side side-l" id="sideL"></aside>
+    <section class="stage" id="stage" data-view="3d">
+      <div class="views">
+        <div class="view v3" id="v3"><canvas id="c3"></canvas></div>
+        <div class="view v2" id="v2"><canvas id="c2"></canvas></div>
+      </div>
+      <div class="hud" id="hudTop"></div>
+      <div class="hud hudB">
+        <div id="hudSel"></div>
+        <div class="hudBrow"><div id="hudTime"></div><div id="hudHint"></div></div>
+      </div>
+    </section>
+    <aside class="side side-r" id="sideR"></aside>
+  </div>
+  <nav class="mobnav" id="mobnav"></nav>
+</div>
+<div id="modal"></div>
+<div id="toast" role="status" aria-live="polite"></div>
+<noscript>This app needs JavaScript. 此應用程式需要啟用 JavaScript。</noscript>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
