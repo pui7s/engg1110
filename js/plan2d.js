@@ -32,9 +32,9 @@ export class Plan2D {
     const C = n => css.getPropertyValue(n).trim();
     const ink = C('--ink'), muted = C('--muted'), blue = C('--blue'), red = C('--bad'), paper = C('--plan');
     const pal = paletteFor(room);
-    const pad = this.cw < 480 ? 34 : 52;
-    this.s = Math.min((this.cw - pad * 2) / room.w, (this.ch - pad * 2 - 8) / room.d);
-    this.ox = (this.cw - room.w * this.s) / 2; this.oz = (this.ch - room.d * this.s) / 2 + 4;
+    const pad = this.cw < 480 ? 34 : 52, hud = 44; // keep the plan clear of the floating toolbar
+    this.s = Math.min((this.cw - pad * 2) / room.w, (this.ch - pad * 2 - hud) / room.d);
+    this.ox = (this.cw - room.w * this.s) / 2; this.oz = hud + (this.ch - hud - room.d * this.s) / 2;
     const s = this.s, X = x => this.ox + x * s, Z = z => this.oz + z * s;
 
     g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
