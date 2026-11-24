@@ -167,6 +167,22 @@ canvas { display: block; border-radius: 8px; box-shadow: 0 0 0 2px #05040f, 0 14
 }
 .go:active { transform: translateY(3px); box-shadow: 0 2px 0 var(--you-deep); }
 .small { font-size: 12px !important; letter-spacing: 0.06em; text-transform: uppercase; }
+.card { overflow-y: auto; }
+.levels { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+.levels button {
+  font-family: var(--display);
+  font-size: 14px;
+  color: var(--chalk);
+  background: var(--floor);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 0;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.levels button.done { background: var(--you-deep); border-color: transparent; }
+.levels button:disabled { color: var(--line); background: transparent; cursor: default; }
+.levels button:focus-visible { outline: 3px solid var(--chalk); outline-offset: 2px; }
 </style>
 
 <div class="hud">
@@ -193,6 +209,7 @@ canvas { display: block; border-radius: 8px; box-shadow: 0 0 0 2px #05040f, 0 14
     <p id="cardText">It is night in the back streets. Everywhere Glob rolls turns <strong class="you">orange</strong>. The Squirts paint it back <strong class="them">teal</strong>. Own the most street when the 60 seconds run out.</p>
     <p id="cardTip">Grab a glowing <strong>ink tank</strong> to paint wide and chomp Squirts. Without it, they splat you.</p>
     <button class="go" id="go" type="button">Play</button>
+    <div class="levels" id="levels" aria-label="Pick a level"></div>
     <p class="small" id="cardFoot">Arrow keys or WASD · swipe on a phone</p>
   </div>
 </div>
@@ -201,6 +218,44 @@ canvas { display: block; border-radius: 8px; box-shadow: 0 0 0 2px #05040f, 0 14
 (() => {
 let W = 19, H = 21;
 const ROUND = 60;
+/* n: Squirts, h: how many of them hunt you, sp: their speed (you roll at 6.4), wd: how often they wander, tank: seconds between ink tanks */
+const LEVELS = [
+  { name: 'Back Alley',    theme: 'night',    n: 2, h: 0, sp: 3.2, wd: 0.44, tank: 6.5, tip: 'Two slow Squirts. Learn the streets.' },
+  { name: 'Market Row',    theme: 'dusk',     n: 2, h: 1, sp: 3.3, wd: 0.40, tank: 6.5, tip: 'One Squirt now hunts you. Keep an ink tank in reach.' },
+  { name: 'Harbor Docks',  theme: 'harbor',   n: 3, h: 1, sp: 3.3, wd: 0.40, tank: 6,   tip: 'A third Squirt joins the paint crew.' },
+  { name: 'Rainy Avenue',  theme: 'rain',     n: 3, h: 1, sp: 3.4, wd: 0.38, tank: 6,   tip: 'Rain on the streets. Watch the corners.' },
+  { name: 'Old Town',      theme: 'old',      n: 3, h: 1, sp: 3.5, wd: 0.36, tank: 5,   tip: 'Ink tanks show up more often here. Use them.' },
+  { name: 'Sewer Line',    theme: 'sewer',    n: 3, h: 1, sp: 3.6, wd: 0.34, tank: 5.5, warps: true, tip: 'Green manholes warp you across the block.' },
+  { name: 'Neon Strip',    theme: 'neon',     n: 3, h: 2, sp: 3.6, wd: 0.32, tank: 5.5, tip: 'Two hunters. Lead them away, then paint behind them.' },
+  { name: 'Snowfall Park', theme: 'snow',     n: 3, h: 1, sp: 3.7, wd: 0.30, tank: 5.5, tip: 'Fresh snow. Every splat shows.' },
+  { name: 'Foggy Hills',   theme: 'fog',      n: 3, h: 1, sp: 3.4, wd: 0.34, tank: 5,   tip: 'Fog hides the Squirts until they are close.' },
+  { name: 'Downtown',      theme: 'downtown', n: 4, h: 1, sp: 3.8, wd: 0.28, tank: 5,   tip: 'Four Squirts. Grab every tank you can.' },
+  { name: 'Storm Port',    theme: 'storm',    n: 4, h: 2, sp: 3.9, wd: 0.26, tank: 5,   warps: true, tip: 'Lightning, rain and warp manholes.' },
+  { name: 'Ink Tower',     theme: 'tower',    n: 4, h: 2, sp: 4.0, wd: 0.25, tank: 4.5, warps: true, tip: 'The last block. Paint it all.' }
+];
+const NIGHT_ROOFS = [['#3b4156', '#1d2030'], ['#4a4258', '#241f30'], ['#34454f', '#18232a'], ['#50464a', '#2a2224']];
+const NEON = { asp: ['#1d1830', '#120e20'], roofs: [['#2a2440', '#120e20'], ['#302848', '#150f24'], ['#24304a', '#0f1524'], ['#382a44', '#180f22']],
+               lamp: ['255,70,200', '70,200,255'], win: ['#ff5cd0', '#5cd8ff'], vig: 0.6 };
+const THEMES = {
+  night:    { asp: ['#2c2f3d', '#1e2130'], roofs: NIGHT_ROOFS, lamp: '255,214,150', win: ['#ffd98a'], vig: 0.62 },
+  dusk:     { asp: ['#3a3040', '#262030'], roofs: [['#5a4458', '#2c1f2e'], ['#6b4a4a', '#331f22'], ['#4a4560', '#221f33'], ['#5e5240', '#2e2618']],
+              lamp: '255,170,110', win: ['#ffc27a'], vig: 0.5, tint: 'rgba(255,110,70,0.10)' },
+  harbor:   { asp: ['#26323e', '#18222c'], roofs: [['#8a3b34', '#40191a'], ['#2f5a86', '#152a40'], ['#3f6e4e', '#1b3324'], ['#9a7a33', '#46370f']],
+              lamp: '200,225,255', win: ['#d8ecff'], vig: 0.6 },
+  rain:     { asp: ['#222936', '#141924'], roofs: NIGHT_ROOFS, lamp: '200,220,255', win: ['#ffd98a'], vig: 0.66, puddles: 0.35, weather: 'rain' },
+  old:      { asp: ['#3d342c', '#29221c'], cobble: true, roofs: [['#8a4a30', '#3f2014'], ['#a0583a', '#4a2515'], ['#7a5a40', '#38281a'], ['#6e3d2e', '#331a12']],
+              lamp: '255,200,120', win: ['#ffcf7a'], vig: 0.58 },
+  sewer:    { asp: ['#26302b', '#18201c'], roofs: [['#3e4a44', '#1c2420'], ['#4a4a3c', '#24241a'], ['#36443f', '#18201d'], ['#454048', '#221e24']],
+              lamp: '160,255,190', win: ['#c8ffd0'], vig: 0.66 },
+  neon:     NEON,
+  snow:     { asp: ['#cfd6e3', '#aeb8cb'], roofs: [['#eef3fa', '#7b88a1'], ['#e4ebf5', '#6c7891'], ['#f4f6fb', '#828fa8'], ['#dde5f1', '#66728b']],
+              lamp: '255,220,170', lampA: 0.45, win: ['#ffd98a'], vig: 0.42, weather: 'snow' },
+  fog:      { asp: ['#2c2f3d', '#1e2130'], roofs: NIGHT_ROOFS, lamp: '220,225,255', win: ['#ffd98a'], vig: 0.5, fog: true },
+  downtown: { asp: ['#2a2d38', '#1b1e28'], roofs: [['#2f3b52', '#141a26'], ['#3a4258', '#181c28'], ['#283848', '#10181f'], ['#44485a', '#1c1e28']],
+              lamp: '255,225,170', win: ['#ffe9b0', '#d8ecff'], vig: 0.6 },
+  storm:    { asp: ['#20262f', '#12161e'], roofs: NIGHT_ROOFS, lamp: '200,220,255', win: ['#ffd98a'], vig: 0.7, puddles: 0.4, weather: 'rain', storm: true },
+  tower:    Object.assign({}, NEON, { tint: 'rgba(255,60,160,0.06)' })
+};
 const DIRS = [[1,0],[-1,0],[0,1],[0,-1]];
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const COL = { night: css('--night'), you: css('--you'), youL: css('--you-lite'), youD: css('--you-deep'),
@@ -212,10 +267,12 @@ const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
 let T = 20, dpr = 1, grid, paint, paintT, openCount, counts, seed = 1;
 let bgC, inkC, inkG, inkDC, inkDG, topC, lightC, vigC;
 let player, rivals, tanks, parts, floats;
+let L = LEVELS[0], TH = THEMES.night, warps = [], weather = [], flash = 0, boltT = 6, banner = null;
 let level = 1, best = 1, timeLeft = ROUND, frenzy = 0, tankTimer = 0, state = 'menu', clockNow = 0, shake = 0;
 let muted = false, ac = null;
 
 try { best = +localStorage.getItem('inkchomp.best') || 1; } catch (e) {}
+best = Math.max(1, Math.min(LEVELS.length + 1, best));
 
 const rnd = n => Math.floor(Math.random() * n);
 const shuffle = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = rnd(i + 1); [a[i], a[j]] = [a[j], a[i]]; } return a; };
@@ -286,8 +343,31 @@ function mk(x, y, team, kind, base) {
            team, kind, base, home: [x, y], dead: 0, inv: 0, wander: 0.3 };
 }
 
+/* Warp manholes: top-left links to bottom-right, top-right to bottom-left. */
+function placeWarps() {
+  const mid = (W - 1) / 2, cand = [];
+  for (let y = 1; y < H - 2; y++) for (let x = 1; x < mid - 1; x++) if (open(x, y) && !(x === 1 && y === 1)) cand.push([x, y]);
+  const top = cand.filter(c => c[1] < H / 3), bot = cand.filter(c => c[1] > H * 2 / 3);
+  if (!top.length || !bot.length) return;
+  const a = top[rnd(top.length)], b = bot[rnd(bot.length)];
+  warps.push([a, [W - 1 - b[0], b[1]]], [[W - 1 - a[0], a[1]], b]);
+}
+function warpDest(x, y) {
+  for (const [a, b] of warps) {
+    if (a[0] === x && a[1] === y) return b;
+    if (b[0] === x && b[1] === y) return a;
+  }
+  return null;
+}
+function makeWeather() {
+  weather = [];
+  const k = TH.weather === 'snow' ? 90 : TH.weather ? 140 : 0;
+  for (let i = 0; i < k; i++) weather.push({ x: Math.random() * W, y: Math.random() * H, v: 0.6 + Math.random() * 0.6, p: Math.random() * 6.283 });
+}
+
 function setup(lv) {
   level = lv;
+  L = LEVELS[lv - 1]; TH = THEMES[L.theme];
   pickGrid();
   genMaze();
   seed = rnd(1e9);
@@ -297,17 +377,20 @@ function setup(lv) {
   const mid = (W - 1) / 2;
   let hm = (H - 1) / 2; if (hm % 2 === 0) hm--;
   player = mk(mid, H - 2, 1, 'you', 6.4);
-  const n = Math.min(4, 2 + Math.floor((lv - 1) / 2));
-  const sp = Math.min(6, 3.2 + 0.35 * (lv - 1));
   const homes = [[1, 1], [W - 2, 1], [mid, 1], [mid, hm]];
   rivals = [];
-  for (let i = 0; i < n; i++) {
-    const r = mk(homes[i][0], homes[i][1], 2, (lv > 1 && i % 2 === 1) ? 'hunter' : 'painter', sp);
-    r.wander = Math.max(0.1, 0.5 - 0.06 * lv);
+  for (let i = 0; i < L.n; i++) {
+    const hunter = (i === 1 && L.h >= 1) || (i === 2 && L.h >= 2);
+    const r = mk(homes[i][0], homes[i][1], 2, hunter ? 'hunter' : 'painter', L.sp);
+    r.wander = L.wd;
     rivals.push(r);
   }
+  warps = [];
+  if (L.warps) placeWarps();
   tanks = []; parts = []; floats = [];
-  timeLeft = ROUND; frenzy = 0; tankTimer = 3; shake = 0;
+  timeLeft = ROUND; frenzy = 0; tankTimer = 3; shake = 0; flash = 0; boltT = 5;
+  banner = { s1: 'Level ' + lv, s2: L.name.toUpperCase(), life: 2.2 };
+  makeWeather();
   resize();
   paintTile(player.cx, player.cy, 1);
   for (const r of rivals) paintTile(r.cx, r.cy, 2);
@@ -322,18 +405,21 @@ function layer() {
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   return [c, g];
 }
-const ROOFS = [
-  { roof: '#3b4156', face: '#1d2030' }, { roof: '#4a4258', face: '#241f30' },
-  { roof: '#34454f', face: '#18232a' }, { roof: '#50464a', face: '#2a2224' }
-];
 function buildScene() {
   const w = W * T, h = H * T, d = T * 0.3;
   let g, r = mul(seed);
   /* asphalt */
   [bgC, g] = layer();
   let gr = g.createLinearGradient(0, 0, w, h);
-  gr.addColorStop(0, '#2c2f3d'); gr.addColorStop(1, '#1e2130');
+  gr.addColorStop(0, TH.asp[0]); gr.addColorStop(1, TH.asp[1]);
   g.fillStyle = gr; g.fillRect(0, 0, w, h);
+  if (TH.cobble) for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    if (grid[y][x]) continue;
+    for (let j = 0; j < 3; j++) for (let i = 0; i < 3; i++) {
+      g.fillStyle = 'rgba(255,235,210,' + (0.04 + r() * 0.07) + ')';
+      g.fillRect(x * T + (i + (j % 2) * 0.5 - 0.25) * T / 3 + 1, y * T + j * T / 3 + 1, T / 3 - 2, T / 3 - 2);
+    }
+  }
   for (let i = 0; i < W * H * 16; i++) {
     g.fillStyle = r() < 0.45 ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.2)';
     const s = 0.6 + r() * 1.4;
@@ -351,11 +437,11 @@ function buildScene() {
       g.strokeStyle = 'rgba(255,255,255,0.14)'; g.lineWidth = Math.max(1, T * 0.04); g.stroke();
       g.beginPath(); g.moveTo(cx - T * 0.17, cy); g.lineTo(cx + T * 0.17, cy);
       g.moveTo(cx, cy - T * 0.17); g.lineTo(cx, cy + T * 0.17); g.stroke();
-    } else if (k < 0.42) { /* puddle catching the light */
+    } else if (k < 0.3 + (TH.puddles || 0.12)) { /* puddle catching the light */
       g.fillStyle = 'rgba(130,170,255,0.1)'; g.strokeStyle = 'rgba(200,220,255,0.1)'; g.lineWidth = 1;
       g.beginPath(); g.ellipse(cx + (r() - 0.5) * T * 0.3, cy + (r() - 0.5) * T * 0.3, T * (0.2 + r() * 0.15), T * (0.1 + r() * 0.1), r() * 3, 0, 6.283);
       g.fill(); g.stroke();
-    } else if (k < 0.55) { /* crack */
+    } else if (k < 0.43 + (TH.puddles || 0.12)) { /* crack */
       g.strokeStyle = 'rgba(0,0,0,0.35)'; g.lineWidth = 1; g.beginPath();
       let px_ = cx + (r() - 0.5) * T * 0.6, py_ = cy + (r() - 0.5) * T * 0.6; g.moveTo(px_, py_);
       for (let i = 0; i < 3; i++) { px_ += (r() - 0.5) * T * 0.4; py_ += (r() - 0.5) * T * 0.4; g.lineTo(px_, py_); }
@@ -364,7 +450,7 @@ function buildScene() {
   }
   /* buildings: front faces with windows, cast shadows, then rooftops */
   [topC, g] = layer();
-  const pal = (x, y) => ROOFS[(((x >> 1) * 31 + (y >> 1) * 17 + seed) >>> 0) % 4];
+  const pal = (x, y) => { const p = TH.roofs[(((x >> 1) * 31 + (y >> 1) * 17 + seed) >>> 0) % 4]; return { roof: p[0], face: p[1] }; };
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     if (!grid[y][x]) continue;
     const X = x * T, Y = y * T, p = pal(x, y);
@@ -373,10 +459,10 @@ function buildScene() {
       gr.addColorStop(0, p.face); gr.addColorStop(1, '#0c0d16');
       g.fillStyle = gr; g.fillRect(X, Y + T, T + 0.5, d);
       for (let i = 0; i < 2; i++) {
-        const lit = r() < 0.45;
+        const lit = r() < 0.45, wc = TH.win[Math.floor(r() * TH.win.length)];
         g.save();
-        if (lit) { g.shadowColor = '#ffc860'; g.shadowBlur = T * 0.35; }
-        g.fillStyle = lit ? '#ffd98a' : '#0a0b13';
+        if (lit) { g.shadowColor = wc; g.shadowBlur = T * 0.35; }
+        g.fillStyle = lit ? wc : '#0a0b13';
         g.fillRect(X + T * (0.16 + 0.46 * i), Y + T + d * 0.22, T * 0.22, d * 0.5);
         g.restore();
       }
@@ -413,8 +499,9 @@ function buildScene() {
       g.strokeStyle = '#8e95a8'; g.lineWidth = 1; g.beginPath();
       g.moveTo(X + T * 0.38, Y + T * 0.48); g.lineTo(X + T * 0.62, Y + T * 0.48); g.stroke();
     } else if (k < 0.2) { /* lit skylight */
-      g.save(); g.shadowColor = '#ffc860'; g.shadowBlur = T * 0.5;
-      g.fillStyle = '#ffd98a'; g.fillRect(X + T * 0.26, Y + T * 0.26, T * 0.48, T * 0.48); g.restore();
+      const wc = TH.win[Math.floor(r() * TH.win.length)];
+      g.save(); g.shadowColor = wc; g.shadowBlur = T * 0.5;
+      g.fillStyle = wc; g.fillRect(X + T * 0.26, Y + T * 0.26, T * 0.48, T * 0.48); g.restore();
       g.strokeStyle = '#3a2a10'; g.lineWidth = Math.max(1, T * 0.04);
       g.strokeRect(X + T * 0.26, Y + T * 0.26, T * 0.48, T * 0.48);
       g.beginPath(); g.moveTo(X + T * 0.5, Y + T * 0.26); g.lineTo(X + T * 0.5, Y + T * 0.74); g.stroke();
@@ -440,17 +527,20 @@ function buildScene() {
     if (lamps.length >= Math.ceil(W * H / 60)) break;
     if (lamps.every(l => Math.abs(l[0] - s[0]) + Math.abs(l[1] - s[1]) >= 5)) lamps.push(s);
   }
-  for (const [x, y] of lamps) {
+  const la = TH.lampA || 1;
+  lamps.forEach(([x, y], i) => {
     const cx = (x + 0.5) * T, cy = (y + 0.5) * T;
+    const c = Array.isArray(TH.lamp) ? TH.lamp[i % TH.lamp.length] : TH.lamp;
     gr = g.createRadialGradient(cx, cy, 0, cx, cy, T * 3.4);
-    gr.addColorStop(0, 'rgba(255,214,150,0.4)'); gr.addColorStop(0.35, 'rgba(255,190,110,0.14)'); gr.addColorStop(1, 'rgba(255,190,110,0)');
+    gr.addColorStop(0, 'rgba(' + c + ',' + 0.4 * la + ')'); gr.addColorStop(0.35, 'rgba(' + c + ',' + 0.14 * la + ')'); gr.addColorStop(1, 'rgba(' + c + ',0)');
     g.fillStyle = gr; g.fillRect(cx - T * 3.4, cy - T * 3.4, T * 6.8, T * 6.8);
-  }
+  });
   /* night falls off toward the edges */
   [vigC, g] = layer();
   gr = g.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.3, w / 2, h / 2, Math.hypot(w, h) / 2);
-  gr.addColorStop(0, 'rgba(6,4,22,0.08)'); gr.addColorStop(1, 'rgba(6,4,22,0.62)');
+  gr.addColorStop(0, 'rgba(6,4,22,0.08)'); gr.addColorStop(1, 'rgba(6,4,22,' + TH.vig + ')');
   g.fillStyle = gr; g.fillRect(0, 0, w, h);
+  if (TH.tint) { g.fillStyle = TH.tint; g.fillRect(0, 0, w, h); }
   /* paint layers: a dark underside gives the ink some thickness */
   [inkC, inkG] = layer(); [inkDC, inkDG] = layer();
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (paint[y][x]) stamp(x, y, paint[y][x]);
@@ -545,7 +635,7 @@ function choose(e) {
         const dd = Math.abs(player.cx - e.cx - d[0]) + Math.abs(player.cy - e.cy - d[1]) + Math.random() * 0.5;
         if (dd > bestD) { bestD = dd; pick = d; }
       }
-    } else if (e.kind === 'hunter' && alive && far < 9 && Math.random() < 0.85) {
+    } else if (e.kind === 'hunter' && alive && far < 8 && Math.random() < 0.75) {
       pick = bfsStep(e, (x, y) => x === player.cx && y === player.cy);
     } else if (Math.random() >= e.wander) {
       pick = bfsStep(e, (x, y) => paint[y][x] !== 2);
@@ -557,6 +647,16 @@ function choose(e) {
 }
 
 function arrive(e) {
+  const wd = warpDest(e.cx, e.cy);
+  if (wd && !e.warped) {
+    paintTile(e.cx, e.cy, e.team);
+    for (let i = 0; i < 10; i++) {
+      const a = Math.random() * 6.283;
+      parts.push({ x: e.cx + 0.5, y: e.cy + 0.5, vx: Math.cos(a) * 4, vy: Math.sin(a) * 4, life: 0.4, c: '#6dff9e', r: 0.08 });
+    }
+    e.cx = wd[0]; e.cy = wd[1]; e.warped = true;
+    if (e === player) beep(900, 0.15, 'sine', 0.06);
+  } else if (!wd) e.warped = false;
   paintTile(e.cx, e.cy, e.team);
   if (e !== player) return;
   if (frenzy > 0) for (let y = -1; y <= 1; y++) for (let x = -1; x <= 1; x++) paintTile(e.cx + x, e.cy + y, 1);
@@ -633,13 +733,25 @@ function update(dt) {
         tanks.push({ x, y }); break;
       }
     }
-    tankTimer = 6.5;
+    tankTimer = L.tank;
   }
   if (timeLeft <= 0) { timeLeft = 0; finish(); }
 }
 
 function fx(dt) {
   if (shake > 0) shake = Math.max(0, shake - dt * 1.4);
+  if (banner) { banner.life -= dt; if (banner.life <= 0) banner = null; }
+  for (const d of weather) {
+    if (TH.weather === 'snow') { d.y += dt * 1.2 * d.v; d.x += Math.sin(clockNow + d.p) * dt * 0.4; }
+    else { d.y += dt * 22 * d.v; d.x -= dt * 5 * d.v; }
+    if (d.y > H + 1) { d.y -= H + 2; d.x = Math.random() * (W + 4); }
+    if (d.x < -1) d.x += W + 2;
+  }
+  if (flash > 0) flash = Math.max(0, flash - dt * 2.5);
+  if (TH.storm && !calm) {
+    boltT -= dt;
+    if (boltT <= 0) { flash = 0.6; boltT = 4 + Math.random() * 6; setTimeout(() => beep(70, 0.7, 'sawtooth', 0.04), 200); }
+  }
   for (let i = parts.length - 1; i >= 0; i--) {
     const p = parts[i];
     p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.9; p.vy *= 0.9; p.life -= dt;
@@ -716,24 +828,7 @@ function blob(e, body, lite, deep, isPlayer) {
   ctx.restore();
 }
 
-function draw() {
-  const w = W * T, h = H * T;
-  ctx.fillStyle = '#05040f';
-  ctx.fillRect(0, 0, w, h);
-  ctx.save();
-  if (shake > 0) ctx.translate((Math.random() - 0.5) * shake * T * 0.6, (Math.random() - 0.5) * shake * T * 0.6);
-  ctx.drawImage(bgC, 0, 0, w, h);
-  ctx.drawImage(inkDC, 0, T * 0.08, w, h);
-  ctx.drawImage(inkC, 0, 0, w, h);
-  /* fresh paint flashes as it lands */
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    const age = clockNow - paintT[y][x];
-    if (age < 0.3 && paint[y][x]) {
-      ctx.fillStyle = 'rgba(255,255,255,' + (0.5 * (1 - age / 0.3)) + ')';
-      ctx.beginPath(); ctx.arc((x + 0.5) * T, (y + 0.5) * T, T * (0.35 + age * 1.2), 0, 6.283); ctx.fill();
-    }
-  }
-  ctx.drawImage(topC, 0, 0, w, h);
+function drawTanks() {
   for (const t of tanks) {
     const x = (t.x + 0.5) * T, y = (t.y + 0.5) * T, pulse = 1 + 0.15 * Math.sin(clockNow * 7);
     ctx.save();
@@ -752,6 +847,42 @@ function draw() {
     ctx.beginPath(); ctx.arc(x, y + T * 0.08, T * 0.12, 0, 6.283); ctx.fill();
     ctx.restore();
   }
+}
+
+function draw() {
+  const w = W * T, h = H * T;
+  ctx.fillStyle = '#05040f';
+  ctx.fillRect(0, 0, w, h);
+  ctx.save();
+  if (shake > 0) ctx.translate((Math.random() - 0.5) * shake * T * 0.6, (Math.random() - 0.5) * shake * T * 0.6);
+  ctx.drawImage(bgC, 0, 0, w, h);
+  ctx.drawImage(inkDC, 0, T * 0.08, w, h);
+  ctx.drawImage(inkC, 0, 0, w, h);
+  /* fresh paint flashes as it lands */
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const age = clockNow - paintT[y][x];
+    if (age < 0.3 && paint[y][x]) {
+      ctx.fillStyle = 'rgba(255,255,255,' + (0.5 * (1 - age / 0.3)) + ')';
+      ctx.beginPath(); ctx.arc((x + 0.5) * T, (y + 0.5) * T, T * (0.35 + age * 1.2), 0, 6.283); ctx.fill();
+    }
+  }
+  for (const pair of warps) for (const [x, y] of pair) {
+    const cx = (x + 0.5) * T, cy = (y + 0.5) * T;
+    ctx.save();
+    ctx.fillStyle = '#0f1517';
+    ctx.beginPath(); ctx.arc(cx, cy, T * 0.38, 0, 6.283); ctx.fill();
+    ctx.shadowColor = '#6dff9e'; ctx.shadowBlur = T * 0.6;
+    ctx.strokeStyle = '#6dff9e'; ctx.lineWidth = Math.max(1.5, T * 0.07);
+    ctx.stroke();
+    ctx.shadowBlur = 0; ctx.lineWidth = Math.max(1, T * 0.05);
+    for (let k = 0; k < 3; k++) {
+      const a = clockNow * 3 + k * 2.094;
+      ctx.beginPath(); ctx.arc(cx, cy, T * 0.2, a, a + 1.3); ctx.stroke();
+    }
+    ctx.restore();
+  }
+  ctx.drawImage(topC, 0, 0, w, h);
+  drawTanks();
   for (const r of rivals) if (!r.dead) {
     if (frenzy > 0) blob(r, '#9a94c4', '#f0eeff', '#5d578a', false);
     else blob(r, COL.them, COL.themL, COL.themD, false);
@@ -776,6 +907,28 @@ function draw() {
   }
   ctx.globalCompositeOperation = 'source-over';
   ctx.drawImage(vigC, 0, 0, w, h);
+  if (TH.fog) {
+    const x = (px(player) + 0.5) * T, y = (py(player) + 0.5) * T;
+    const g = ctx.createRadialGradient(x, y, T * 2.2, x, y, T * 6.5);
+    g.addColorStop(0, 'rgba(30,32,46,0)'); g.addColorStop(1, 'rgba(30,32,46,0.86)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = 'rgba(170,178,205,0.06)';
+    for (let i = 0; i < 4; i++) {
+      const fxp = ((clockNow * 0.25 * (i + 1) + i * 0.3) % 1.4 - 0.2) * w;
+      ctx.beginPath(); ctx.ellipse(fxp, h * (0.15 + i * 0.23), w * 0.35, T * 2, 0, 0, 6.283); ctx.fill();
+    }
+    ctx.globalAlpha = 0.7; drawTanks(); ctx.globalAlpha = 1;
+  }
+  if (TH.weather === 'snow') {
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    for (const d of weather) { ctx.beginPath(); ctx.arc(d.x * T, d.y * T, T * 0.06 * d.v + 0.6, 0, 6.283); ctx.fill(); }
+  } else if (TH.weather) {
+    ctx.strokeStyle = 'rgba(190,210,255,0.35)'; ctx.lineWidth = Math.max(1, T * 0.04);
+    ctx.beginPath();
+    for (const d of weather) { ctx.moveTo(d.x * T, d.y * T); ctx.lineTo((d.x + 0.2 * d.v) * T, (d.y - 0.9 * d.v) * T); }
+    ctx.stroke();
+  }
+  if (flash > 0) { ctx.fillStyle = 'rgba(225,232,255,' + (flash * 0.6) + ')'; ctx.fillRect(0, 0, w, h); }
   ctx.textAlign = 'center';
   ctx.font = Math.round(T * 0.8) + 'px Bungee, "Arial Black", sans-serif';
   for (const f of floats) {
@@ -785,6 +938,20 @@ function draw() {
     ctx.fillStyle = '#fff'; ctx.fillText(f.s, fxp, f.y * T);
   }
   ctx.globalAlpha = 1;
+  if (banner && state === 'play') {
+    ctx.globalAlpha = Math.min(1, banner.life * 2);
+    let size = T * 1.2;
+    ctx.font = Math.round(size) + 'px Bungee, "Arial Black", sans-serif';
+    const tw = ctx.measureText(banner.s2).width;
+    if (tw > w * 0.88) { size *= w * 0.88 / tw; ctx.font = Math.round(size) + 'px Bungee, "Arial Black", sans-serif'; }
+    ctx.lineWidth = size * 0.22; ctx.strokeStyle = COL.night;
+    ctx.strokeText(banner.s2, w / 2, h * 0.42 + size * 1.1);
+    ctx.fillStyle = COL.you; ctx.fillText(banner.s2, w / 2, h * 0.42 + size * 1.1);
+    ctx.font = Math.round(T * 0.7) + 'px Bungee, "Arial Black", sans-serif';
+    ctx.lineWidth = T * 0.18;
+    ctx.strokeText(banner.s1, w / 2, h * 0.42); ctx.fillStyle = '#fff'; ctx.fillText(banner.s1, w / 2, h * 0.42);
+    ctx.globalAlpha = 1;
+  }
   ctx.restore();
 }
 
@@ -808,21 +975,36 @@ function finish() {
   const a = Math.round(100 * counts[1] / openCount), b = Math.round(100 * counts[2] / openCount);
   const won = counts[1] > counts[2];
   hud(true);
+  const lastLevel = level === LEVELS.length;
   if (won) {
     best = Math.max(best, level + 1);
     try { localStorage.setItem('inkchomp.best', best); } catch (e) {}
     beep(520, 0.15); setTimeout(() => beep(660, 0.15), 140); setTimeout(() => beep(880, 0.3), 280);
   } else beep(200, 0.5, 'sawtooth', 0.06);
-  $('cardTitle').textContent = won ? 'Streets claimed!' : counts[1] === counts[2] ? 'Dead heat' : 'Out-inked';
+  $('cardTitle').textContent = won ? (lastLevel ? 'Whole city painted!' : 'Streets claimed!') : counts[1] === counts[2] ? 'Dead heat' : 'Out-inked';
   $('cardText').innerHTML = '<strong class="you">You ' + a + '%</strong> · <strong class="them">Rivals ' + b + '%</strong>';
   $('cardTip').textContent = won
-    ? 'Level ' + (level + 1) + ' is a new block with faster Squirts.'
+    ? (lastLevel ? 'You beat all ' + LEVELS.length + ' blocks. Replay any of them below.' : 'Next: ' + LEVELS[level].name + '. ' + LEVELS[level].tip)
     : 'Tip: you roll faster on your own orange and slower through teal.';
-  $('go').textContent = won ? 'Level ' + (level + 1) : 'Try again';
-  $('go').dataset.next = won ? level + 1 : level;
-  $('cardFoot').textContent = 'Furthest level reached: ' + best;
+  $('go').textContent = won ? (lastLevel ? 'Play level 1' : 'Level ' + (level + 1)) : 'Try again';
+  $('go').dataset.next = won ? (lastLevel ? 1 : level + 1) : level;
+  renderLevels();
   $('card').hidden = false;
   $('go').focus();
+}
+
+function renderLevels() {
+  const box = $('levels');
+  box.textContent = '';
+  LEVELS.forEach((lv, i) => {
+    const n = i + 1, b = document.createElement('button');
+    b.type = 'button'; b.id = 'lv' + n; b.textContent = n;
+    b.title = n <= best ? lv.name : 'Locked';
+    b.setAttribute('aria-label', 'Level ' + n + (n <= best ? ', ' + lv.name : ', locked'));
+    if (n > best) b.disabled = true; else if (n < best) b.classList.add('done');
+    b.addEventListener('click', () => { $('go').dataset.next = n; start(); });
+    box.appendChild(b);
+  });
 }
 
 function start() {
@@ -878,12 +1060,16 @@ $('mute').addEventListener('click', () => {
 addEventListener('resize', resize);
 
 /* Boot: show a half-painted block behind the title card. */
-setup(1);
+const startAt = Math.min(best, LEVELS.length);
+setup(startAt);
+banner = null;
 for (let i = 0; i < 200; i++) { for (const r of rivals) advance(r, 0.1); }
 { const ghost = mk(player.cx, player.cy, 1, 'painter', 6);
   for (let i = 0; i < 90; i++) { const d = bfsStep(ghost, (x, y) => paint[y][x] !== 1); if (!d) break; ghost.cx += d[0]; ghost.cy += d[1]; paintTile(ghost.cx, ghost.cy, 1); } }
 hud(true);
-if (best > 1) $('cardFoot').textContent = 'Furthest level reached: ' + best + ' · arrows, WASD or swipe';
+$('go').dataset.next = startAt;
+if (startAt > 1) $('go').textContent = 'Play level ' + startAt;
+renderLevels();
 requestAnimationFrame(frame);
 })();
 </script>
